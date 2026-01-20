@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.hidewhatsapp.app</string>
+    <key>CFBundleExecutable</key>
+    <string>HideWhatsApp</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleName</key>
+    <string>HideWhatsApp</string>
+    <key>CFBundleDisplayName</key>
+    <string>WhatsApp Privacy Blur</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>WhatsApp Privacy Blur needs accessibility access to detect WhatsApp window position and apply the privacy blur overlay.</string>
+</dict>
+</plist>
