@@ -19,3 +19,5 @@ Independent-review findings: physical capitalization/Unicode aliases can evade l
 Offline validation intentionally cannot fetch live certificate revocation/notarization status. It never enables network-assisted verification or weakens the Apple anchor on failure.
 
 Final post-review verification: 14 core checks / 65 assertions / 0 failures; 41 Python tests including four real signed-artifact checks / 0 failures / no skips. Snapshot release build and signed-bundle checks passed after the offline-validation fix. Final binary SHA-256: 2a5593bb2bef0028b6552edec77a6b6ce605f3b0dc55196ebf25f0ed3a7d6bbf. Shell syntax and diff whitespace checks passed.
+
+Follow-up: The original failed-sample assessment is superseded by docs/whatsapp-identity-execution.md. Investigation established a valid Mac App Store signature rejected by our certificate-OU assumption; distribution-specific strict offline validation now passes, including the sandbox-only CLI check. GUI coverage acceptance is still separate.

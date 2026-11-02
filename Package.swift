@@ -8,6 +8,7 @@ let package = Package(
     targets: [
         .target(name: "PrivacyCore"),
         .executableTarget(name: "PrivacyCoreTests", dependencies: ["PrivacyCore"], path: "Tests/PrivacyCoreTests"),
+        .executableTarget(name: "TargetIdentityTests", dependencies: ["PrivacyCore"], path: "Tests/TargetIdentityTests"),
         .executableTarget(
             name: "HideWhatsApp",
             dependencies: ["PrivacyCore"],

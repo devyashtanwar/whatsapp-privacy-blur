@@ -17,7 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar.setup()
         let monitor = PrivacyMonitor(confinementAllowed: true)
         self.monitor = monitor
-        monitor.onStatusChange = { [weak self] status in self?.statusBar.setStatus(status) }
+        monitor.onStatusChange = { [weak self] status, diagnostic in self?.statusBar.setStatus(status, diagnostic: diagnostic) }
+        statusBar.onRetryAuthentication = { [weak monitor] in monitor?.retryAuthentication() }
         monitor.start()
     }
     func applicationWillTerminate(_ notification: Notification) { monitor?.stop() }

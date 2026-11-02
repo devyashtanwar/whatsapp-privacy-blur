@@ -5,7 +5,7 @@ final class WindowMetadataSource: WindowSource {
     static let bundleID = "net.whatsapp.WhatsApp"
     private let coverTarget: (Int) -> UInt32?
     private let identity = ProcessIdentityProvider()
-    private(set) var hasUntrustedTarget = false
+    private(set) var identityFailure: ProcessIdentityFailure?
 
     init(coverTarget: @escaping (Int) -> UInt32?) { self.coverTarget = coverTarget }
     func invalidateIdentityCache() { identity.invalidate() }
@@ -21,7 +21,7 @@ final class WindowMetadataSource: WindowSource {
         precondition(Thread.isMainThread)
         let applications = Self.targetApplications.filter { !$0.isHidden }
         let authenticated = identity.trustedPIDs(applications)
-        hasUntrustedTarget = !applications.isEmpty && authenticated.isEmpty
+        identityFailure = authenticated.isEmpty ? identity.failure : nil
         guard !authenticated.isEmpty else { return empty() }
         let records = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                  kCGNullWindowID) as? [[String: Any]] ?? []
