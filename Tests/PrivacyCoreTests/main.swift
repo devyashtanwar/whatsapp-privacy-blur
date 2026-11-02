@@ -8,7 +8,7 @@ struct PrivacyCoreTests {
     func testDisabledAndSuspendedNeverReadMetadata() {
         let source = Source()
         let sink = Sink()
-        let coordinator = PrivacyCoordinator(source: source, sink: sink)
+        let coordinator = PrivacyCoordinator(source: source, sink: sink, confinementAllowed: true)
         coordinator.update(configuration: .init(enabled: false), targetRunning: true, suspended: false)
         coordinator.poll()
         expect((source.reads) == (0))
@@ -21,7 +21,7 @@ struct PrivacyCoreTests {
     func testEnableAfterStartingDisabledResumesAndDisableClearsAllCovers() {
         let source = Source()
         let sink = Sink()
-        let coordinator = PrivacyCoordinator(source: source, sink: sink)
+        let coordinator = PrivacyCoordinator(source: source, sink: sink, confinementAllowed: true)
         coordinator.update(configuration: .init(enabled: false), targetRunning: true, suspended: false)
         coordinator.update(configuration: .init(), targetRunning: true, suspended: false)
         expect((coordinator.isMonitoring))
@@ -38,7 +38,7 @@ struct PrivacyCoreTests {
     func testTargetExitClearsCoversAndResumeRecomputes() {
         let source = Source()
         let sink = Sink()
-        let coordinator = PrivacyCoordinator(source: source, sink: sink)
+        let coordinator = PrivacyCoordinator(source: source, sink: sink, confinementAllowed: true)
         coordinator.update(configuration: .init(), targetRunning: true, suspended: false)
         coordinator.update(configuration: .init(), targetRunning: false, suspended: false)
         expect((sink.plans.isEmpty))
@@ -142,7 +142,7 @@ struct PrivacyCoreTests {
             targetIsFrontmost: true,
             mouseLocation: .zero
         )
-        func snapshot() -> WindowEnvironment { reads += 1; return environment }
+        func snapshot(includeHover: Bool) -> WindowEnvironment { reads += 1; return environment }
     }
 
     private final class Sink: CoverSink {
@@ -164,27 +164,22 @@ func expect(_ condition: @autoclosure () -> Bool, file: StaticString = #filePath
     }
 }
 let suite = PrivacyCoreTests()
-print("Running testDisabledAndSuspendedNeverReadMetadata")
-suite.testDisabledAndSuspendedNeverReadMetadata()
-print("Running testEnableAfterStartingDisabledResumesAndDisableClearsAllCovers")
-suite.testEnableAfterStartingDisabledResumesAndDisableClearsAllCovers()
-print("Running testTargetExitClearsCoversAndResumeRecomputes")
-suite.testTargetExitClearsCoversAndResumeRecomputes()
-print("Running testBackgroundWindowsStayCoveredAndHoverRevealResetsOnFocusLoss")
-suite.testBackgroundWindowsStayCoveredAndHoverRevealResetsOnFocusLoss()
-print("Running testDefaultCoversEntireWindowWithoutHoverReveal")
-suite.testDefaultCoversEntireWindowWithoutHoverReveal()
-print("Running testMultipleWindowsAndNegativeDisplayOrigins")
-suite.testMultipleWindowsAndNegativeDisplayOrigins()
-print("Running testSidebarClampsToSmallWindowsAndHeaderStaysInsideWindow")
-suite.testSidebarClampsToSmallWindowsAndHeaderStaysInsideWindow()
-print("Running testInvalidFramesAndDuplicateIDsAreRejected")
-suite.testInvalidFramesAndDuplicateIDsAreRejected()
-print("Running testInvalidWidthUsesSafeFallbackAndSettingsAreBounded")
-suite.testInvalidWidthUsesSafeFallbackAndSettingsAreBounded()
-print("Running testHoverDoesNotRevealWindowBehindAnotherWindow")
-suite.testHoverDoesNotRevealWindowBehindAnotherWindow()
-print("Running testMetadataDecoderRejectsOtherAppsUtilityWindowsAndMalformedRecords")
-suite.testMetadataDecoderRejectsOtherAppsUtilityWindowsAndMalformedRecords()
-print("11 tests, \(assertions) assertions, \(failures) failures")
+let checks: [(String, () -> Void)] = [
+    ("authenticated processes", processTrustTests),
+    ("capability boundary", capabilityTests),
+    ("startup and hover minimization", startupAndHoverTests),
+    ("disabled/suspended", suite.testDisabledAndSuspendedNeverReadMetadata),
+    ("enable/disable", suite.testEnableAfterStartingDisabledResumesAndDisableClearsAllCovers),
+    ("target exit", suite.testTargetExitClearsCoversAndResumeRecomputes),
+    ("background hover", suite.testBackgroundWindowsStayCoveredAndHoverRevealResetsOnFocusLoss),
+    ("full coverage default", suite.testDefaultCoversEntireWindowWithoutHoverReveal),
+    ("display coordinates", suite.testMultipleWindowsAndNegativeDisplayOrigins),
+    ("sidebar clamping", suite.testSidebarClampsToSmallWindowsAndHeaderStaysInsideWindow),
+    ("invalid geometry", suite.testInvalidFramesAndDuplicateIDsAreRejected),
+    ("width bounds", suite.testInvalidWidthUsesSafeFallbackAndSettingsAreBounded),
+    ("occluded hover", suite.testHoverDoesNotRevealWindowBehindAnotherWindow),
+    ("metadata decoding", suite.testMetadataDecoderRejectsOtherAppsUtilityWindowsAndMalformedRecords)
+]
+for (name, check) in checks { print("Running \(name)"); check() }
+print("\(checks.count) core checks, \(assertions) assertions, \(failures) failures")
 exit(failures == 0 ? 0 : 1)

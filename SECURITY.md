@@ -4,7 +4,7 @@
 
 The app reads local running-app metadata, on-screen window ownership/geometry, foreground app identity, current cursor position and the window under that cursor. The OS window-list API returns system metadata for windows; the code filters to WhatsApp process IDs and does not read window titles. It never requests chat text, account databases or screen pixels.
 
-Only Enabled, coverage mode, hover preference and manual sidebar width are stored using UserDefaults in the app's normal preference/container storage. Login launch is controlled through SMAppService; the displayed status comes from macOS rather than a separate saved preference.
+Enabled, coverage mode, hover preference and manual sidebar width live only in memory. They reset each launch; the app does not deliberately create preference/log/history files. Login launch is controlled through SMAppService; the displayed status comes from macOS rather than a separate saved preference.
 
 There is no networking, telemetry SDK, remote update mechanism, clipboard reader, keyboard event monitor, shell execution or third-party dependency in the application. Build scripts invoke the local compiler/signing tools; those scripts are not bundled application behavior.
 
@@ -14,7 +14,7 @@ The verified app is signed with App Sandbox and hardened runtime. Its only expli
 
 This restricts direct app capabilities; it is not proof against every OS bug, allowed system-service interaction or future altered implementation. Signing with `-` is local ad-hoc signing, not a verified publisher identity or notarization. Static symbol checks are regression guardrails and can be bypassed by a sufficiently different implementation; they are not malware detection.
 
-Use the signed bundle, not `swift run HideWhatsApp`, when evaluating the configured confinement. Future code/build changes require review again.
+The runtime startup gate refuses an unbundled/raw or incorrectly signed executable before target monitoring. Use the verified signed bundle. Future code/build changes require review again.
 
 ## Intentional limits
 
@@ -33,3 +33,12 @@ Use the signed bundle, not `swift run HideWhatsApp`, when evaluating the configu
 Run `./scripts/test.sh` and `./build-app.sh`. The latter runs `scripts/verify_app.py` without executing the app. Consult README's manual acceptance checklist before personal use.
 
 For vulnerabilities, report a minimal technical reproduction privately to the fork owner where an appropriate private reporting channel is available. Do not include chat contents, tokens or personal files in public issues.
+
+## New enforcement and provenance
+The signed local capability policy and exact entitlement allowlist are checked both by packaging and at startup. Known network, browser/URL broker, sensor/location, personal-file, Keychain-secret, clipboard, shell and persistence routes are excluded by source review and regression guardrails. Cursor/hit-test metadata is sampled only with explicit hover enabled. Certificate validation never enables network-assisted trust.
+
+Process selection requires Apple-anchored running code with the pinned WhatsApp identifier and publisher, not an identifier string alone. A signature failure produces no cover or permission prompt. See docs/runtime-capability-audit.md for the failed local sample and required authentic-distribution acceptance check.
+
+Compilation uses a private, fixed copy of source/build inputs and records hashes of those same bytes. Install paths are canonicalized before staging, publication is serialized and uses Darwin atomic no-clobber renames, and recovery preserves an old backup instead of overwriting a conflicting new destination. These measures do not guarantee power-loss transactions or defeat arbitrary malicious same-user filesystem tampering.
+
+All code-validity checks explicitly disable network-dependent evaluation. Offline validation cannot retrieve fresh online revocation/notarization status; it preserves the Apple anchor and fails locally rather than enabling online verification.

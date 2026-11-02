@@ -1,0 +1,21 @@
+# Offline security implementation record
+Plan: docs/superpowers/plans/2026-11-02-second-security-pass.md.
+Baseline: merged main 14e12c6; original PR #1 already merged. New work is on codex/offline-security-boundary and will use a separate PR.
+Preflight: Task0 policy must be packaged by Task4 snapshot; Task1 canonical destination feeds Task2 lock/atomic publication; Task3 consumes same capability gate; no conflicting interfaces.
+User authorized implementation/PR, but not app launch/install or browser/computer use. Runtime acceptance remains intentionally deferred.
+Tasks 0–4 implemented; local verification complete. Live acceptance remains deferred until review.
+
+Task0: policy regressions observed 19 assertion failures before implementation; artifact policy tests observed 15 failed rejection cases before implementation. Core, artifact and source guardrails now pass. Startup gate and session-only settings compile. Source audit rejects online-assisted certificate trust and external dependencies (two new failures observed before adding those checks).
+Task1/2: deterministic alias/late-destination regressions failed before fix. Canonicalization, managed output roots, physical-parent directory locks and Darwin RENAME_EXCL now implemented; actual two-process install and rollback-conflict checks pass. An intermittent O_CREAT/openat race returned ENOENT even while parent inode and existing lock file were verified; explicit exclusive-create/open-existing protocol fixed it, confirmed by 20 repeated concurrency suites.
+Task3: five process-policy assertions failed before implementation; generation-bound trust cache and trusted foreground PID checks now pass. Running-code adapter compiles; strict offline Apple-anchor requirement remains mandatory.
+Task4: four source-snapshot regressions failed against live-tree scaffolding, then passed after fixed input copying. Real snapshot compilation/static signing verification completed successfully.
+Ruling: full runtime denial/UI checks remain deferred exactly as the approved plan requires; no app launch/install or permission grant is authorized yet. Cost: live OS compatibility and runtime silence are not established by these tests.
+Ruling: installed WhatsApp metadata identifies Team 57T9237FN3, but strict Apple-anchor validation failed and certificates could not be extracted here. Preserve the strict requirement and fail closed. Cost: an authentic official distribution fixture/live validation remains necessary before personal use; no usability claim is made.
+
+Pre-review verification: 14 registered core checks / 65 assertions / 0 failures, 36 Python tests including all four real signed-artifact checks / 0 failures and no skips. Snapshot release build/signature/capability/layout/import/library verification passed. Shell syntax and diff whitespace checks passed. Last verified binary SHA-256: e0720496c701d85efef6a3255779abf808eea6fbd74e92637e67da729eacbf95.
+No actual app launch/install, permission grant, network-denial runtime experiment, microphone/camera/location access or WhatsApp-content read occurred.
+
+Independent-review findings: physical capitalization/Unicode aliases can evade lexical paths, and strict signature validation must explicitly disable network-dependent work. Added inode/ancestor separation, parent-directory locks shared by aliases, and explicit kSecCSNoNetworkAccess (Swift projection SecCSFlags.noNetworkAccess) on every dynamic/static validity call. Case-alias and offline-flag regressions failed before fixes and passed after. Added real-process shared-lock and Unicode-alias checks. The reviewer session ended before a final verdict; the remaining source pass was completed by the implementer, and no independent final approval is claimed.
+Offline validation intentionally cannot fetch live certificate revocation/notarization status. It never enables network-assisted verification or weakens the Apple anchor on failure.
+
+Final post-review verification: 14 core checks / 65 assertions / 0 failures; 41 Python tests including four real signed-artifact checks / 0 failures / no skips. Snapshot release build and signed-bundle checks passed after the offline-validation fix. Final binary SHA-256: 2a5593bb2bef0028b6552edec77a6b6ce605f3b0dc55196ebf25f0ed3a7d6bbf. Shell syntax and diff whitespace checks passed.

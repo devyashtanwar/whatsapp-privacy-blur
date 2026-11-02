@@ -57,7 +57,7 @@ public struct CoverPlan: Equatable {
     public let revealed: Bool
 }
 
-public protocol WindowSource: AnyObject { func snapshot() -> WindowEnvironment }
+public protocol WindowSource: AnyObject { func snapshot(includeHover: Bool) -> WindowEnvironment }
 public protocol CoverSink: AnyObject { func apply(_ plans: [CoverPlan]) }
 
 public enum CoveragePlanner {
@@ -99,11 +99,14 @@ public final class PrivacyCoordinator {
     private let source: WindowSource
     private let sink: CoverSink
     private var configuration = CoverConfiguration(enabled: false)
+    private let confinementAllowed: Bool
     public private(set) var isMonitoring = false
-    public init(source: WindowSource, sink: CoverSink) { self.source = source; self.sink = sink }
+    public init(source: WindowSource, sink: CoverSink, confinementAllowed: Bool = false) {
+        self.source = source; self.sink = sink; self.confinementAllowed = confinementAllowed
+    }
     public func update(configuration: CoverConfiguration, targetRunning: Bool, suspended: Bool) {
         self.configuration = configuration
-        isMonitoring = configuration.enabled && targetRunning && !suspended
+        isMonitoring = confinementAllowed && configuration.enabled && targetRunning && !suspended
         poll()
     }
     public func poll() {
@@ -111,6 +114,6 @@ public final class PrivacyCoordinator {
             sink.apply([])
             return
         }
-        sink.apply(CoveragePlanner.plans(configuration: configuration, environment: source.snapshot()))
+        sink.apply(CoveragePlanner.plans(configuration: configuration, environment: source.snapshot(includeHover: configuration.hoverReveal)))
     }
 }
