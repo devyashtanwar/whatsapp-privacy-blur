@@ -1,74 +1,44 @@
 import Foundation
+import PrivacyCore
 
 final class Settings {
     static let shared = Settings()
-
     private let defaults = UserDefaults.standard
 
-    private enum Key {
-        static let overlayEnabled = "overlayEnabled"
-        static let overlayWidth = "overlayWidth"
-        static let autoDetectWidth = "autoDetectWidth"
-        static let blurIntensity = "blurIntensity"
-        static let launchAtLogin = "launchAtLogin"
+    var configuration: CoverConfiguration {
+        CoverConfiguration(enabled: overlayEnabled, fullWindow: fullWindow,
+                           hoverReveal: hoverReveal, sidebarWidth: overlayWidth)
     }
 
     var overlayEnabled: Bool {
-        get { defaults.bool(forKey: Key.overlayEnabled) }
-        set {
-            defaults.set(newValue, forKey: Key.overlayEnabled)
-            NotificationCenter.default.post(name: .settingsChanged, object: nil)
-        }
+        get { defaults.bool(forKey: "overlayEnabled") }
+        set { defaults.set(newValue, forKey: "overlayEnabled"); changed() }
     }
-
+    var fullWindow: Bool {
+        get { defaults.bool(forKey: "fullWindow") }
+        set { defaults.set(newValue, forKey: "fullWindow"); changed() }
+    }
+    var hoverReveal: Bool {
+        get { defaults.bool(forKey: "hoverReveal") }
+        set { defaults.set(newValue, forKey: "hoverReveal"); changed() }
+    }
     var overlayWidth: CGFloat {
-        get {
-            let value = defaults.double(forKey: Key.overlayWidth)
-            return value > 0 ? value : 308
-        }
+        get { CoverConfiguration(sidebarWidth: defaults.double(forKey: "overlayWidth")).sidebarWidth }
         set {
-            defaults.set(newValue, forKey: Key.overlayWidth)
-            NotificationCenter.default.post(name: .settingsChanged, object: nil)
-        }
-    }
-
-    var autoDetectWidth: Bool {
-        get {
-            if defaults.object(forKey: Key.autoDetectWidth) == nil {
-                return true // Default to true
-            }
-            return defaults.bool(forKey: Key.autoDetectWidth)
-        }
-        set {
-            defaults.set(newValue, forKey: Key.autoDetectWidth)
-            NotificationCenter.default.post(name: .settingsChanged, object: nil)
-        }
-    }
-
-    var blurIntensity: String {
-        get { defaults.string(forKey: Key.blurIntensity) ?? "medium" }
-        set {
-            defaults.set(newValue, forKey: Key.blurIntensity)
-            NotificationCenter.default.post(name: .settingsChanged, object: nil)
-        }
-    }
-
-    var launchAtLogin: Bool {
-        get { defaults.bool(forKey: Key.launchAtLogin) }
-        set {
-            defaults.set(newValue, forKey: Key.launchAtLogin)
-            LaunchAtLogin.setEnabled(newValue)
+            defaults.set(Double(CoverConfiguration(sidebarWidth: newValue).sidebarWidth), forKey: "overlayWidth")
+            changed()
         }
     }
 
     private init() {
-        // Register defaults
         defaults.register(defaults: [
-            Key.overlayEnabled: true,
-            Key.overlayWidth: 308.0,
-            Key.autoDetectWidth: true,
-            Key.blurIntensity: "medium"
+            "overlayEnabled": true, "fullWindow": true,
+            "hoverReveal": false, "overlayWidth": 308.0
         ])
+    }
+
+    private func changed() {
+        NotificationCenter.default.post(name: .settingsChanged, object: nil)
     }
 }
 

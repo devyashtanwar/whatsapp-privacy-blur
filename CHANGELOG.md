@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0] - 2026-11-02 (privacy cover fork)
+
+- Replace screenshot blur with opaque covers; remove all Accessibility and screen-capture APIs.
+- Default to full-window coverage and disable hover reveal; optional manual sidebar/header mode.
+- Guard metadata monitoring with enabled, running-app and session/sleep state.
+- Track multiple/background-visible windows and gate hover on the actual hit window.
+- Add sandbox-only hardened-runtime local signing, static verification and source hashes.
+- Add staged opt-in replacement with backups and rollback; never auto-launch.
+- Add synthetic regression tests, installer fault tests and macOS CI.
+- Document visual-concealment limits and required live acceptance before personal use.
+
 ## [1.2.0] - 2026-01-20
 
 ### Added

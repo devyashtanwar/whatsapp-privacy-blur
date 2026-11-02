@@ -1,0 +1,17 @@
+name: Verify privacy cover
+on:
+  pull_request:
+  push:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Synthetic policy and installer tests
+        run: ./scripts/test.sh
+      - name: Build and statically verify sandboxed app
+        run: ./build-app.sh
