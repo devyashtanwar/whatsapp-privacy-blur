@@ -80,7 +80,22 @@ After source/PR review, test with non-sensitive chats:
 7. Test login registration/unregistration and verify actual OS status.
 8. Use external network/process monitoring if runtime network verification is required.
 
-A passing source/test/build review does not certify these live OS interactions. No runtime app acceptance has been performed as part of the source changes. Target publisher checks require Apple-anchored code for net.whatsapp.WhatsApp / Team 57T9237FN3, cached by PID plus launch generation. The installed sample did not pass strict Apple-anchor verification in this execution environment; an authenticated official distribution and live sandbox compatibility must be validated before use. There is no same-ID or unsigned fallback. See [capability audit](docs/runtime-capability-audit.md).
+A passing source/test/build review does not certify these live OS interactions. Target publisher checks require Apple-anchored running code for `net.whatsapp.WhatsApp`, with separate Mac App Store and Developer ID requirements, cached by PID plus launch generation. The App Store branch also requires signed team `57T9237FN3` and signed application identity `UKFA9XBX6K.net.whatsapp.WhatsApp`; this prefix intentionally differs from the team ID. The Developer ID branch requires that publisher's Developer ID certificate. There is no same-ID or unsigned fallback.
+
+The installed App Store fixture passed strict offline static and running-process validation, including a temporary command-line harness with only the sandbox entitlement. Actual coverage with the GUI utility still requires acceptance testing. A genuine Developer ID distribution fixture was unavailable; that channel's positive test remains unverified. See [capability audit](docs/runtime-capability-audit.md).
+
+If authentication fails, the status says **Cover inactive**. Open **Authentication details…** for the local stage and Security error code. **Retry WhatsApp authentication** clears the in-memory identity cache and rechecks without granting permissions or enabling networking. Retrying does not override a rejection.
+
+Additional developer tests use a separate Security API harness, never bundled into the utility. `scripts/test.sh` builds it and checks unsigned, ad-hoc, unrelated and tampered fixtures without launching those fixtures. Authentic distribution and live sandbox checks are opt-in:
+
+```bash
+TARGET_APP_STORE_FIXTURE="/Applications/WhatsApp.app" \
+PRIVACY_VERIFIED_APP="$PWD/dist/WhatsApp Privacy Cover.app" \
+./scripts/test.sh
+```
+
+`TARGET_DEVELOPER_ID_FIXTURE` optionally supplies an authenticated Developer ID copy. `TARGET_IDENTITY_PID` optionally supplies the PID of already-running WhatsApp for a temporary sandboxed command-line identity test; it does not launch WhatsApp or the GUI utility. Missing fixtures are explicitly skipped, not reported as verified.
+
 
 ## Architecture
 

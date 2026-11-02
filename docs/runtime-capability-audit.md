@@ -11,7 +11,8 @@ This inventory covers the executable and its source at this PR. The app places o
 | ProcessIdentity/ProcessTrust | Candidate PID, bundle ID, launch generation, running-code signing requirement | In-memory generation-bound positive/negative cache; lifecycle invalidation; no secret Keychain APIs |
 | WindowMetadata | Authenticated live target PIDs; window ownership/geometry; display coordinate origin | No window-title/chat-text access; no snapshots if no authenticated target; no pixel capture |
 | HoverSampling | Pointer location and hit window, only when explicitly enabled | Lazy reads; disabled/suspended monitoring never calls source; hover-off never calls cursor/hit providers |
-| PrivacyCore | Coverage geometry and trusted foreground decisions | Pure calculations; finite/clamped rectangles; no network/files/devices |
+| PrivacyCore geometry/policy | Coverage geometry and trusted foreground decisions | Pure calculations; finite/clamped rectangles; no network/files/devices |
+| TargetIdentityPolicy/TargetCodeValidator | Fixed distribution requirements and Security running-code check | Strict offline Apple-anchor verification; no shell or sensitive entitlements |
 | PrivacyMonitor | Workspace/settings/display lifecycle; one timer | Clears covers/stops polling when disabled/suspended; no global input tap |
 | CoverOverlay | Approved frame/reveal plans | Opaque NSWindows; mouse events pass through only when revealed; no images or captures |
 | StatusBar | User menu actions and local status/errors | No URL/file dialogs, sharing, browser, printing, or remote help routes |
@@ -25,9 +26,16 @@ Only the main executable, Info.plist, the two approved JSON resources and the si
 These scans are regression guardrails, not a proof against arbitrary obfuscated code or future altered tools. The startup gate is defense in depth; the OS sandbox is the direct capability restriction.
 
 ## Target publisher identity
-The target requirement is Apple-anchored code with identifier net.whatsapp.WhatsApp and certificate leaf OU 57T9237FN3. Both the identifier and TeamIdentifier were observed in the installed target metadata. The metadata alone is not trusted: the running target must satisfy the full requirement.
+Both supported distribution branches require Apple-anchored running code with identifier net.whatsapp.WhatsApp:
 
-Strict Apple-anchor validation of the installed sample failed in this execution environment (including the read-only elevated check); no trustworthy certificate chain could be extracted from that sample. It is deliberately not accepted as an authenticated fixture. This PR never relaxes the anchor or allows a matching identifier/TeamIdentifier alone. An authenticated official-distribution fixture and real sandbox process validation remain required before personal use; unsupported/re-signed targets produce an untrusted-target status and no covers.
+- Mac App Store: leaf certificate OID 1.2.840.113635.100.6.1.9, signed com.apple.developer.team-identifier 57T9237FN3 and signed com.apple.application-identifier UKFA9XBX6K.net.whatsapp.WhatsApp.
+- Developer ID: intermediate OID 1.2.840.113635.100.6.2.6, leaf OID 1.2.840.113635.100.6.1.13 and leaf subject OU 57T9237FN3.
+
+The earlier blanket leaf-OU condition rejected the legitimate App Store distribution, whose Apple signing certificate does not carry that publisher OU. Read-only verification outside the agent restriction established the Apple Mac OS Application Signing chain; the original custom requirement failed while the new narrow store requirement passed. Default agent-restricted trust errors are not evidence of a bad WhatsApp installation. This supersedes the previous failed-sample assessment.
+
+Real strict/offline Security API checks pass for the store bundle and running process, including a temporary sandbox-only hardened CLI harness. Wrong expected publisher/application identity is rejected even against the valid store signature. Unsigned, ad-hoc impostors, unrelated Apple-signed code and tampered fixtures are rejected. A genuine Developer ID fixture remains unavailable and is explicitly skipped. GUI coverage acceptance is still pending; no relaxed or unsigned fallback exists.
+
+Process failures are typed by requirement creation, guest lookup, code validity or generation change, with local Security status where available. They are held only in memory. The menu states that covering is inactive and offers details and explicit cache invalidation/retry. Lifecycle invalidation and PID/launch-generation checks remain mandatory.
 
 ## Offline scope
 No runtime network client/server/update/telemetry code or sensitive-data prompts are implemented. The same applies to indirect browser/URL/web-view/sharing/shell routes. No dependency downloads are needed. Default ad-hoc signing does not request an online timestamp.
@@ -38,4 +46,4 @@ Optional Developer ID signing can explicitly request a publisher timestamp durin
 All running-code/static-code validity checks supply the explicit no-network flag. This prevents network-dependent certificate work but cannot retrieve fresh online revocation/notarization status; offline trust is not live revocation assurance. No system-wide trust or network settings are changed.
 
 ## Evidence limits
-Synthetic policy/adapter-boundary checks, real temporary filesystem races and static signed-artifact rejection tests do not certify live window ordering, sandbox metadata/code-identity access, ordinary screen lock, login behavior, or actual runtime network silence. No GUI app launch, installation, permission grant or WhatsApp-content access is performed by this PR's implementation.
+The sandbox-only validator test establishes running-code identity access for this installed store copy. It does not certify window metadata/ordering, ordinary screen lock, login behavior, or actual runtime network silence. No GUI app launch, installation, permission grant or WhatsApp-content access is performed by this PR's implementation.

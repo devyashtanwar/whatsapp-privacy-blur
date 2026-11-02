@@ -1,4 +1,5 @@
 import AppKit
+import Security
 import PrivacyCore
 
 /// Main-thread adapter: one timer, never a capture timer or global event tap.
@@ -15,7 +16,13 @@ final class PrivacyMonitor {
     private var screenAsleep = false
     private var sessionInactive = false
     private var status = ""
-    var onStatusChange: ((String) -> Void)?
+    private var diagnostic: String?
+    var onStatusChange: ((String, String?) -> Void)?
+
+    func retryAuthentication() {
+        source.invalidateIdentityCache()
+        synchronize()
+    }
 
     func start() {
         guard confinementAllowed, observers.isEmpty else { return }
@@ -72,12 +79,25 @@ final class PrivacyMonitor {
 
     private func updateStatus() {
         let next: String
+        var detail: String?
         if !Settings.shared.overlayEnabled { next = "Disabled — monitoring stopped" }
         else if screenAsleep || sessionInactive { next = "Paused" }
-        else if source.hasUntrustedTarget { next = "WhatsApp publisher could not be authenticated" }
+        else if WindowMetadataSource.targetApplications.isEmpty { next = "Waiting for WhatsApp" }
+        else if let failure = source.identityFailure {
+            next = failure.summary
+            var lines = ["Stage: \(failure.stage.rawValue)"]
+            if let code = failure.status {
+                let reason = SecCopyErrorMessageString(code, nil) as String? ?? "Unknown Security error"
+                lines.append("Security status: \(code)\n\(reason)")
+            }
+            lines.append("No cover is active for this target. No extra permissions or online verification will be requested.")
+            detail = lines.joined(separator: "\n")
+        }
         else if renderer.trackedWindowCount == 0 { next = "Waiting for visible WhatsApp windows" }
         else { next = "Tracking \(renderer.trackedWindowCount) WhatsApp window(s)" }
-        if status != next { status = next; onStatusChange?(next) }
+        if status != next || diagnostic != detail {
+            status = next; diagnostic = detail; onStatusChange?(next, detail)
+        }
     }
 
     func stop() {

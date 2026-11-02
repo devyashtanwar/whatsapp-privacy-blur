@@ -5,6 +5,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
     private var status = "Waiting for WhatsApp"
     private var statusLine: NSMenuItem?
+    private var diagnostic: String?
+    var onRetryAuthentication: (() -> Void)?
 
     func setup() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -15,10 +17,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         rebuildMenu()
     }
 
-    func setStatus(_ value: String) {
+    func setStatus(_ value: String, diagnostic: String?) {
+        self.diagnostic = diagnostic
         status = value
         statusLine?.title = value
-        let symbol = Settings.shared.overlayEnabled ? "eye.slash.fill" : "eye.fill"
+        let symbol = diagnostic != nil ? "exclamationmark.shield" : (Settings.shared.overlayEnabled ? "eye.slash.fill" : "eye.fill")
         statusItem?.button?.image = NSImage(systemSymbolName: symbol,
                                            accessibilityDescription: value)
     }
@@ -41,6 +44,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         line.isEnabled = false
         statusLine = line
         menu.addItem(line)
+        if diagnostic != nil {
+            let details = NSMenuItem(title: "Authentication details…", action: #selector(showAuthenticationDetails), keyEquivalent: "")
+            details.target = self
+            menu.addItem(details)
+        }
+        let retry = NSMenuItem(title: "Retry WhatsApp authentication", action: #selector(retryAuthentication), keyEquivalent: "")
+        retry.target = self
+        menu.addItem(retry)
         menu.addItem(.separator())
         add("Enabled", action: #selector(toggleEnabled), checked: Settings.shared.overlayEnabled, key: "e")
         add("Cover entire window", action: #selector(toggleFullWindow), checked: Settings.shared.fullWindow)
@@ -71,6 +82,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(quit)
     }
 
+    @objc private func retryAuthentication() { onRetryAuthentication?() }
+    @objc private func showAuthenticationDetails() {
+        guard let diagnostic = diagnostic else { return }
+        let alert = NSAlert()
+        alert.messageText = "WhatsApp cover is inactive"
+        alert.informativeText = diagnostic
+        alert.runModal()
+    }
     @objc private func toggleEnabled() { Settings.shared.overlayEnabled.toggle() }
     @objc private func toggleFullWindow() { Settings.shared.fullWindow.toggle() }
     @objc private func toggleHover() { Settings.shared.hoverReveal.toggle() }
