@@ -15,6 +15,7 @@ This is visual concealment for nearby observers. It is not an app lock, encrypti
 - Background-visible WhatsApp windows remain tracked; revealing stops when another app becomes foreground.
 - Multiple visible regular WhatsApp windows are tracked individually.
 - Covers block clicks while opaque. When revealed, clicks pass through to WhatsApp.
+- Settings are session-only and reset to privacy defaults each launch; no preference/history files are deliberately written.
 - Launch at Login is opt-in and uses macOS's login-item service. Registration failures are shown.
 
 ## Requirements
@@ -32,13 +33,15 @@ No sensitive-data permission is required by this version. Do not grant Accessibi
 
 The tests exercise synthetic geometry/lifecycle inputs and temporary installer fixtures. They do not open WhatsApp, place windows on your desktop, or grant permissions.
 
-The core tests use a small command-line assertion harness so they run with Command Line Tools without XCTest, compiler macro plugins, or a full Xcode setup. The suite exits nonzero on failure. `scripts/test.sh` is the complete project test command.
+The core tests use a small command-line assertion harness so they run with Command Line Tools without XCTest, compiler macro plugins, or a full Xcode setup. The suite exits nonzero on failure. After a build, run `PRIVACY_VERIFIED_APP="$PWD/dist/WhatsApp Privacy Cover.app" ./scripts/test.sh` to include real signed-artifact rejection tests; they inspect temporary copies without executing the app. `scripts/test.sh` is the complete project test command.
 
 The build command produces `dist/WhatsApp Privacy Cover.app`, signs it locally with App Sandbox and hardened runtime, then verifies its signature, entitlement allowlist, sensitive API imports and dynamic-library dependencies. It **does not install or launch the app**. Build intermediates and caches stay under `.build/`.
 
+The startup gate also validates its own signature, runtime hardening and signed local capability policy before any target monitoring. Unsandboxed/raw executables are refused, with no permission-granting fallback.
+
 The final app's only explicit entitlement is `com.apple.security.app-sandbox`. No network-client/server, broad filesystem, automation or device entitlements are included. Running the raw Swift package executable bypasses this bundle signing configuration; use the verified app bundle for later runtime evaluation.
 
-`Contents/Resources/source-manifest.json` records the base Git revision and input-file hashes, including dirty source inputs. `dist/HideWhatsApp.sha256` records the signed executable hash. These are provenance aids, not independently authenticated/reproducible-build proofs.
+`Contents/Resources/source-manifest.json` records the base Git revision and exact private-snapshot input hashes, including dirty source inputs. Compilation uses that fixed snapshot; later edits to the live checkout do not change its manifest. `dist/HideWhatsApp.sha256` records the signed executable hash. These are provenance aids, not independently authenticated/reproducible-build proofs.
 
 Optional Developer ID signing:
 
@@ -77,7 +80,7 @@ After source/PR review, test with non-sensitive chats:
 7. Test login registration/unregistration and verify actual OS status.
 8. Use external network/process monitoring if runtime network verification is required.
 
-A passing source/test/build review does not certify these live OS interactions. No runtime app acceptance has been performed as part of the source changes.
+A passing source/test/build review does not certify these live OS interactions. No runtime app acceptance has been performed as part of the source changes. Target publisher checks require Apple-anchored code for net.whatsapp.WhatsApp / Team 57T9237FN3, cached by PID plus launch generation. The installed sample did not pass strict Apple-anchor verification in this execution environment; an authenticated official distribution and live sandbox compatibility must be validated before use. There is no same-ID or unsigned fallback. See [capability audit](docs/runtime-capability-audit.md).
 
 ## Architecture
 

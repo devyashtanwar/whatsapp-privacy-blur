@@ -15,3 +15,7 @@ jobs:
         run: ./scripts/test.sh
       - name: Build and statically verify sandboxed app
         run: ./build-app.sh
+      - name: Real signed-artifact rejection tests (no execution)
+        env:
+          PRIVACY_VERIFIED_APP: ${{ github.workspace }}/dist/WhatsApp Privacy Cover.app
+        run: python3 -m unittest discover -s Tests/InstallerTests -p test_signed_artifacts.py -v

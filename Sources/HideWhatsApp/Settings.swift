@@ -3,45 +3,27 @@ import PrivacyCore
 
 final class Settings {
     static let shared = Settings()
-    private let defaults = UserDefaults.standard
-
-    var configuration: CoverConfiguration {
-        CoverConfiguration(enabled: overlayEnabled, fullWindow: fullWindow,
-                           hoverReveal: hoverReveal, sidebarWidth: overlayWidth)
-    }
+    private let session = SessionSettings()
+    var configuration: CoverConfiguration { session.configuration }
 
     var overlayEnabled: Bool {
-        get { defaults.bool(forKey: "overlayEnabled") }
-        set { defaults.set(newValue, forKey: "overlayEnabled"); changed() }
+        get { session.enabled }
+        set { session.enabled = newValue; changed() }
     }
     var fullWindow: Bool {
-        get { defaults.bool(forKey: "fullWindow") }
-        set { defaults.set(newValue, forKey: "fullWindow"); changed() }
+        get { session.fullWindow }
+        set { session.fullWindow = newValue; changed() }
     }
     var hoverReveal: Bool {
-        get { defaults.bool(forKey: "hoverReveal") }
-        set { defaults.set(newValue, forKey: "hoverReveal"); changed() }
+        get { session.hoverReveal }
+        set { session.hoverReveal = newValue; changed() }
     }
     var overlayWidth: CGFloat {
-        get { CoverConfiguration(sidebarWidth: defaults.double(forKey: "overlayWidth")).sidebarWidth }
-        set {
-            defaults.set(Double(CoverConfiguration(sidebarWidth: newValue).sidebarWidth), forKey: "overlayWidth")
-            changed()
-        }
+        get { session.configuration.sidebarWidth }
+        set { session.width = CoverConfiguration(sidebarWidth: newValue).sidebarWidth; changed() }
     }
-
-    private init() {
-        defaults.register(defaults: [
-            "overlayEnabled": true, "fullWindow": true,
-            "hoverReveal": false, "overlayWidth": 308.0
-        ])
-    }
-
-    private func changed() {
-        NotificationCenter.default.post(name: .settingsChanged, object: nil)
-    }
+    private func changed() { NotificationCenter.default.post(name: .settingsChanged, object: nil) }
 }
-
 extension Notification.Name {
     static let settingsChanged = Notification.Name("settingsChanged")
 }

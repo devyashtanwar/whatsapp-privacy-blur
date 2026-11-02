@@ -18,7 +18,7 @@ class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.source = self.root / "built.app"
         self.source.mkdir()
         (self.source / "payload").write_text("new")
@@ -58,12 +58,12 @@ class InstallerTests(unittest.TestCase):
 
     def test_commit_failure_rolls_back_existing_install(self):
         self.existing()
-        real_replace = os.replace
+        real_replace = installer.atomic_publish_no_replace
         def fail_new_install(source, destination):
             if Path(destination) == self.destination and Path(source).name == "staged.app":
                 raise OSError("rename failure")
             return real_replace(source, destination)
-        with patch.object(installer.os, "replace", side_effect=fail_new_install):
+        with patch.object(installer, "atomic_publish_no_replace", side_effect=fail_new_install):
             with self.assertRaises(OSError):
                 self.install(self.source, self.destination, replace=True)
         self.assertEqual((self.destination / "payload").read_text(), "old")

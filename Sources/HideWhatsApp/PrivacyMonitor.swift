@@ -7,7 +7,9 @@ final class PrivacyMonitor {
     private lazy var source = WindowMetadataSource(coverTarget: { [weak self] number in
         self?.renderer.targetWindow(for: number)
     })
-    private lazy var coordinator = PrivacyCoordinator(source: source, sink: renderer)
+    private let confinementAllowed: Bool
+    init(confinementAllowed: Bool) { self.confinementAllowed = confinementAllowed }
+    private lazy var coordinator = PrivacyCoordinator(source: source, sink: renderer, confinementAllowed: confinementAllowed)
     private var timer: Timer?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var screenAsleep = false
@@ -16,12 +18,15 @@ final class PrivacyMonitor {
     var onStatusChange: ((String) -> Void)?
 
     func start() {
-        guard observers.isEmpty else { return }
+        guard confinementAllowed, observers.isEmpty else { return }
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
                      NSWorkspace.didActivateApplicationNotification, NSWorkspace.didHideApplicationNotification,
                      NSWorkspace.didUnhideApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
-            observe(workspace, name) { [weak self] in self?.synchronize() }
+            observe(workspace, name) { [weak self] in
+                self?.source.invalidateIdentityCache()
+                self?.synchronize()
+            }
         }
         observe(workspace, NSWorkspace.screensDidSleepNotification) { [weak self] in
             self?.screenAsleep = true; self?.synchronize()
@@ -69,6 +74,7 @@ final class PrivacyMonitor {
         let next: String
         if !Settings.shared.overlayEnabled { next = "Disabled — monitoring stopped" }
         else if screenAsleep || sessionInactive { next = "Paused" }
+        else if source.hasUntrustedTarget { next = "WhatsApp publisher could not be authenticated" }
         else if renderer.trackedWindowCount == 0 { next = "Waiting for visible WhatsApp windows" }
         else { next = "Tracking \(renderer.trackedWindowCount) WhatsApp window(s)" }
         if status != next { status = next; onStatusChange?(next) }
