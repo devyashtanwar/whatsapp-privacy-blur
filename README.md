@@ -1,162 +1,91 @@
-# WhatsApp Privacy Blur 🔒
+# WhatsApp Privacy Cover
 
-<p align="center">
-  <img src="https://img.shields.io/badge/macOS-13.0+-blue?style=flat-square&logo=apple" alt="macOS 13.0+">
-  <img src="https://img.shields.io/badge/Swift-6.0-orange?style=flat-square&logo=swift" alt="Swift 6.0">
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
-</p>
+A local macOS menu bar utility that places opaque covers over WhatsApp Desktop windows. This privacy-focused fork replaces the upstream screenshot blur with solid covers.
 
-<p align="center">
-  <strong>Keep your WhatsApp chats private with an intelligent blur overlay.</strong><br>
-  A lightweight macOS menu bar app that automatically blurs your WhatsApp sidebar.
-</p>
+**No screenshots. No Accessibility permission. No Screen Recording permission. No analytics, network functionality, or third-party packages.**
 
----
+This is visual concealment for nearby observers. It is not an app lock, encryption, malware protection, or dependable screen-sharing redaction. Read [SECURITY.md](SECURITY.md) before use.
 
-## ✨ Features
+## Defaults and controls
 
-- **🎯 Smart Blur** - Automatically blurs chat list and header for instant privacy
-- **👆 Hover to Reveal** - Smooth fade animation reveals content on hover
-- **📏 Auto-Detect Width** - Uses Accessibility APIs to detect sidebar width
-- **🎨 Blur Intensity** - Choose from Light, Medium, or Heavy blur
-- **⚙️ Manual Control** - Adjust overlay width with slider (200-500px)
-- **🚀 Launch at Login** - Auto-start on macOS login (macOS 13+)
-- **🌟 Menu Bar App** - Lives in your menu bar, no dock icon clutter
+- Entire WhatsApp window covered by default, including chat bodies.
+- Hover reveal disabled by default. Enable **Hover to reveal window** only if you accept that moving the pointer over a cover reveals that window.
+- Disable **Cover entire window** for sidebar + header coverage. This exposes chat bodies. Sidebar width is manual (200–500 points) and needs checking against your layout.
+- Disable **Enabled** to remove covers and stop window monitoring. Re-enabling recomputes visible windows immediately.
+- Background-visible WhatsApp windows remain tracked; revealing stops when another app becomes foreground.
+- Multiple visible regular WhatsApp windows are tracked individually.
+- Covers block clicks while opaque. When revealed, clicks pass through to WhatsApp.
+- Launch at Login is opt-in and uses macOS's login-item service. Registration failures are shown.
 
-## 📸 Preview
+## Requirements
 
-```
-┌────────────────────────────────────────┐
-│ 🔒 WhatsApp Privacy Blur               │
-├────────────────────────────────────────┤
-│ ✓ Enabled                              │
-│ ✓ Auto-detect Width                    │
-│   Width: 308px [━━━━━━━━━━━━━━━]      │
-│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
-│   Blur Intensity      › Medium ✓       │
-│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
-│ ✓ Launch at Login                      │
-│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
-│   Quit                                 │
-└────────────────────────────────────────┘
+macOS 13 or newer, Apple's Swift 5.9+ command-line tools, Python 3, and WhatsApp Desktop (bundle ID `net.whatsapp.WhatsApp`). No Apple developer account is needed for a local ad-hoc signed build.
+
+No sensitive-data permission is required by this version. Do not grant Accessibility, Screen Recording, Input Monitoring, Full Disk Access, camera or microphone access to make it work.
+
+## Review and test before installation
+
+```bash
+./scripts/test.sh
+./build-app.sh
 ```
 
-## 🚀 Installation
+The tests exercise synthetic geometry/lifecycle inputs and temporary installer fixtures. They do not open WhatsApp, place windows on your desktop, or grant permissions.
 
-### Easy Install (Recommended)
+The core tests use a small command-line assertion harness so they run with Command Line Tools without XCTest, compiler macro plugins, or a full Xcode setup. The suite exits nonzero on failure. `scripts/test.sh` is the complete project test command.
+
+The build command produces `dist/WhatsApp Privacy Cover.app`, signs it locally with App Sandbox and hardened runtime, then verifies its signature, entitlement allowlist, sensitive API imports and dynamic-library dependencies. It **does not install or launch the app**. Build intermediates and caches stay under `.build/`.
+
+The final app's only explicit entitlement is `com.apple.security.app-sandbox`. No network-client/server, broad filesystem, automation or device entitlements are included. Running the raw Swift package executable bypasses this bundle signing configuration; use the verified app bundle for later runtime evaluation.
+
+`Contents/Resources/source-manifest.json` records the base Git revision and input-file hashes, including dirty source inputs. `dist/HideWhatsApp.sha256` records the signed executable hash. These are provenance aids, not independently authenticated/reproducible-build proofs.
+
+Optional Developer ID signing:
+
+```bash
+SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./build-app.sh
+```
+
+Developer ID signing alone does not notarize the app. Do not disable Gatekeeper or remove quarantine attributes; investigate any OS refusal.
+
+## Install only after review
 
 ```bash
 ./install.sh
 ```
 
-This builds the release binary and installs it as a proper macOS app to `/Applications/WhatsApp Privacy Blur.app`.
-
-### Manual Build
+Installs the verified local build to `~/Applications/WhatsApp Privacy Cover.app` without launching it. An existing destination is refused. Quit the old app before explicitly replacing it:
 
 ```bash
-swift build -c release
-.build/release/HideWhatsApp
+./install.sh --replace
 ```
 
-## 🔧 Requirements
+Replacement stages the new app first and retains the old bundle at an adjacent `.backup-…` path. If the final rename fails, the old app is restored. The installer never requests root or modifies OS security settings.
 
-- macOS 13.0 or later
-- Accessibility permission (required for window detection)
-- WhatsApp Desktop app
+The fork uses `devyashtanwar.whatsapp-privacy-cover` as its bundle identifier so it does not reuse upstream preference/permission identity. If the upstream version was installed previously, quit it, disable its login item and revoke its Accessibility/Screen Recording permissions separately.
 
-## 📖 Usage
+## Manual acceptance before trusting concealment
 
-1. **Launch the app** - Find it via Spotlight or in `/Applications`
-2. **Grant accessibility permission** - Required for detecting WhatsApp window position
-3. **Open WhatsApp** - Blur overlay appears automatically
-4. **Hover to reveal** - Move cursor over blur to temporarily reveal content
-5. **Configure** - Click menu bar icon for settings
+After source/PR review, test with non-sensitive chats:
 
-## ⚙️ Configuration
+1. Check the signed app starts without privacy permission prompts and covers every intended window.
+2. Verify window ordering with another app in front, multiple WhatsApp windows, minimizing/hiding, moving/resizing, Spaces and full screen.
+3. Check multiple displays, including displays left of/above the primary display and changes to the primary display.
+4. Toggle Enabled; monitoring must stop and resume correctly. Test sleep/wake and switching user sessions. Separately check ordinary screen locking: there is no dedicated lock handler and the relevant OS notification delivery is not yet verified.
+5. Check hover opt-in, focus loss, and that a window behind another window cannot be revealed by hovering the overlapping area.
+6. Confirm sidebar/header-only coverage fits your WhatsApp version if you choose that less-complete mode.
+7. Test login registration/unregistration and verify actual OS status.
+8. Use external network/process monitoring if runtime network verification is required.
 
-### Menu Bar Options
+A passing source/test/build review does not certify these live OS interactions. No runtime app acceptance has been performed as part of the source changes.
 
-| Option | Description |
-|--------|-------------|
-| **Enabled** | Toggle blur on/off (⌘+E) |
-| **Auto-detect Width** | Automatically detect sidebar width via Accessibility APIs |
-| **Width Slider** | Manually adjust overlay width (200-500px) |
-| **Blur Intensity** | Choose Light, Medium, or Heavy blur effect |
-| **Launch at Login** | Auto-start on macOS login (uses SMAppService) |
-| **Quit** | Exit the app (⌘+Q) |
+## Architecture
 
-### Settings Persistence
+- `Sources/PrivacyCore`: validated window metadata, coverage geometry and lifecycle policy.
+- `Sources/HideWhatsApp`: metadata-only OS adapter, opaque AppKit windows, one monitoring timer, settings/menu and opt-in login service.
+- `Tests/PrivacyCoreTests`: synthetic executable tests.
+- `Tests/InstallerTests`: filesystem installation/rollback tests.
+- `scripts`: local build, signing, verification and staging.
+- `.github/workflows/verify.yml`: macOS tests/build verification; no release publishing.
 
-All settings are saved automatically via `UserDefaults` and persist across app restarts.
-
-## 🏗️ Architecture
-
-```
-Sources/HideWhatsApp/
-├── main.swift              # Entry point
-├── AppDelegate.swift       # App lifecycle
-├── StatusBar.swift         # Menu bar UI
-├── Settings.swift          # User preferences
-├── LaunchAtLogin.swift     # SMAppService wrapper
-├── BlurOverlay.swift       # Blur window rendering
-└── WhatsAppMonitor.swift   # Window position tracking
-```
-
-## 🔐 Privacy
-
-- **No data collection** - Everything runs locally
-- **No network requests** - Zero external communication
-- **No analytics** - Your privacy is paramount
-- **Open source** - Audit the code yourself
-
-## 🛠️ Development
-
-### Build
-
-```bash
-swift build
-```
-
-### Run (Debug)
-
-```bash
-swift run
-```
-
-### Clean
-
-```bash
-swift package clean
-```
-
-## 📝 Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for version history.
-
-### Latest (v1.2.0)
-
-- ✅ Proper macOS app bundle
-- ✅ Launch at Login support
-- ✅ Install script for easy setup
-
-## 🤝 Contributing
-
-Contributions welcome! Feel free to open issues or submit PRs.
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) for details.
-
-## 🙏 Acknowledgments
-
-Built with Swift and macOS AppKit. Uses:
-- `NSWindow` for overlay rendering
-- Accessibility APIs for window detection
-- `SMAppService` for login item registration
-- `UserDefaults` for settings persistence
-
----
-
-<p align="center">
-  Made with ❤️ for privacy-conscious WhatsApp users
-</p>
+Derived from [realhasanshoaib/whatsapp-privacy-blur](https://github.com/realhasanshoaib/whatsapp-privacy-blur), upstream base `da50ac5d4817d6098d984f9312e73b1f6c38ca05`. MIT license; see [LICENSE](LICENSE).

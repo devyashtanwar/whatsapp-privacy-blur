@@ -1,164 +1,94 @@
 import AppKit
 
-final class StatusBarController {
+final class StatusBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let menu = NSMenu()
-    private var enabledItem: NSMenuItem!
-    private var autoDetectItem: NSMenuItem!
-    private var widthSliderItem: NSMenuItem!
-    private var widthSlider: NSSlider!
-    private var widthLabel: NSTextField!
-    private var blurIntensityMenu: NSMenu!
-    private var launchAtLoginItem: NSMenuItem!
+    private var status = "Waiting for WhatsApp"
+    private var statusLine: NSMenuItem?
 
     func setup() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-
-        guard let button = statusItem?.button else { return }
-        button.image = NSImage(systemSymbolName: "eye.slash.fill", accessibilityDescription: "Hide WhatsApp")
-
-        buildMenu()
+        statusItem?.button?.image = NSImage(systemSymbolName: "eye.slash.fill",
+                                           accessibilityDescription: "WhatsApp Privacy Cover")
+        menu.delegate = self
         statusItem?.menu = menu
+        rebuildMenu()
     }
 
-    private func buildMenu() {
-        // Title
-        let titleItem = NSMenuItem(title: "WhatsApp Privacy Blur", action: nil, keyEquivalent: "")
-        titleItem.isEnabled = false
-        menu.addItem(titleItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Enable/Disable toggle
-        enabledItem = NSMenuItem(
-            title: "Enabled",
-            action: #selector(toggleEnabled),
-            keyEquivalent: "e"
-        )
-        enabledItem.target = self
-        enabledItem.state = Settings.shared.overlayEnabled ? .on : .off
-        menu.addItem(enabledItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Auto-detect width checkbox
-        autoDetectItem = NSMenuItem(
-            title: "Auto-detect Width",
-            action: #selector(toggleAutoDetect),
-            keyEquivalent: ""
-        )
-        autoDetectItem.target = self
-        autoDetectItem.state = Settings.shared.autoDetectWidth ? .on : .off
-        menu.addItem(autoDetectItem)
-
-        // Width slider
-        widthSliderItem = createWidthSliderItem()
-        menu.addItem(widthSliderItem)
-        updateSliderState()
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Blur intensity submenu
-        let blurIntensityItem = NSMenuItem(title: "Blur Intensity", action: nil, keyEquivalent: "")
-        blurIntensityMenu = NSMenu()
-        blurIntensityItem.submenu = blurIntensityMenu
-
-        for (value, title) in [("light", "Light"), ("medium", "Medium"), ("heavy", "Heavy")] {
-            let item = NSMenuItem(title: title, action: #selector(setBlurIntensity(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = value
-            item.state = Settings.shared.blurIntensity == value ? .on : .off
-            blurIntensityMenu.addItem(item)
-        }
-        menu.addItem(blurIntensityItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Launch at Login
-        launchAtLoginItem = NSMenuItem(
-            title: "Launch at Login",
-            action: #selector(toggleLaunchAtLogin),
-            keyEquivalent: ""
-        )
-        launchAtLoginItem.target = self
-        launchAtLoginItem.state = LaunchAtLogin.isEnabled ? .on : .off
-        menu.addItem(launchAtLoginItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Quit
-        let quitItem = NSMenuItem(
-            title: "Quit",
-            action: #selector(quit),
-            keyEquivalent: "q"
-        )
-        quitItem.target = self
-        menu.addItem(quitItem)
+    func setStatus(_ value: String) {
+        status = value
+        statusLine?.title = value
+        let symbol = Settings.shared.overlayEnabled ? "eye.slash.fill" : "eye.fill"
+        statusItem?.button?.image = NSImage(systemSymbolName: symbol,
+                                           accessibilityDescription: value)
     }
 
-    private func createWidthSliderItem() -> NSMenuItem {
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 50))
+    func menuWillOpen(_ menu: NSMenu) { rebuildMenu() }
 
-        // Label
-        widthLabel = NSTextField(labelWithString: "Width: \(Int(Settings.shared.overlayWidth))px")
-        widthLabel.frame = NSRect(x: 20, y: 28, width: 160, height: 16)
-        widthLabel.font = .systemFont(ofSize: 12)
-        containerView.addSubview(widthLabel)
-
-        // Slider
-        widthSlider = NSSlider(value: Double(Settings.shared.overlayWidth), minValue: 200, maxValue: 500, target: self, action: #selector(widthChanged))
-        widthSlider.frame = NSRect(x: 20, y: 4, width: 160, height: 20)
-        widthSlider.isContinuous = true
-        containerView.addSubview(widthSlider)
-
-        let item = NSMenuItem()
-        item.view = containerView
-        return item
+    private func add(_ title: String, action: Selector, checked: Bool, key: String = "") {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.target = self
+        item.state = checked ? .on : .off
+        menu.addItem(item)
     }
 
-    private func updateSliderState() {
-        let isManual = !Settings.shared.autoDetectWidth
-        widthSlider.isEnabled = isManual
-        widthLabel.textColor = isManual ? .labelColor : .tertiaryLabelColor
+    private func rebuildMenu() {
+        menu.removeAllItems()
+        let title = NSMenuItem(title: "WhatsApp Privacy Cover", action: nil, keyEquivalent: "")
+        title.isEnabled = false
+        menu.addItem(title)
+        let line = NSMenuItem(title: status, action: nil, keyEquivalent: "")
+        line.isEnabled = false
+        statusLine = line
+        menu.addItem(line)
+        menu.addItem(.separator())
+        add("Enabled", action: #selector(toggleEnabled), checked: Settings.shared.overlayEnabled, key: "e")
+        add("Cover entire window", action: #selector(toggleFullWindow), checked: Settings.shared.fullWindow)
+        add("Hover to reveal window", action: #selector(toggleHover), checked: Settings.shared.hoverReveal)
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 50))
+        let label = NSTextField(labelWithString: "Sidebar width: \(Int(Settings.shared.overlayWidth))")
+        label.frame = NSRect(x: 20, y: 27, width: 200, height: 18)
+        label.textColor = Settings.shared.fullWindow ? .tertiaryLabelColor : .labelColor
+        container.addSubview(label)
+        let slider = NSSlider(value: Double(Settings.shared.overlayWidth), minValue: 200, maxValue: 500,
+                              target: self, action: #selector(widthChanged(_:)))
+        slider.frame = NSRect(x: 20, y: 3, width: 200, height: 20)
+        slider.isEnabled = !Settings.shared.fullWindow
+        slider.isContinuous = false
+        container.addSubview(slider)
+        let sliderItem = NSMenuItem()
+        sliderItem.view = container
+        menu.addItem(sliderItem)
+        menu.addItem(.separator())
+        add("Launch at Login", action: #selector(toggleLogin), checked: LaunchAtLogin.isEnabled)
+        let limitations = NSMenuItem(title: "Privacy limits…", action: #selector(showLimits), keyEquivalent: "")
+        limitations.target = self
+        menu.addItem(limitations)
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
+        quit.target = self
+        menu.addItem(quit)
     }
 
-    @objc private func toggleEnabled() {
-        Settings.shared.overlayEnabled.toggle()
-        enabledItem.state = Settings.shared.overlayEnabled ? .on : .off
-
-        if let button = statusItem?.button {
-            let iconName = Settings.shared.overlayEnabled ? "eye.slash.fill" : "eye.fill"
-            button.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Hide WhatsApp")
+    @objc private func toggleEnabled() { Settings.shared.overlayEnabled.toggle() }
+    @objc private func toggleFullWindow() { Settings.shared.fullWindow.toggle() }
+    @objc private func toggleHover() { Settings.shared.hoverReveal.toggle() }
+    @objc private func widthChanged(_ sender: NSSlider) { Settings.shared.overlayWidth = CGFloat(sender.doubleValue) }
+    @objc private func toggleLogin() {
+        do { try LaunchAtLogin.setEnabled(!LaunchAtLogin.isEnabled) }
+        catch {
+            let alert = NSAlert()
+            alert.messageText = "Could not change Launch at Login"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
         }
     }
-
-    @objc private func toggleAutoDetect() {
-        Settings.shared.autoDetectWidth.toggle()
-        autoDetectItem.state = Settings.shared.autoDetectWidth ? .on : .off
-        updateSliderState()
+    @objc private func showLimits() {
+        let alert = NSAlert()
+        alert.messageText = "A visual cover, not an app lock"
+        alert.informativeText = "No screenshots, Accessibility access, or network access are needed. Covers can lag during window changes and disappear if the app exits. Hover reveal exposes the window when enabled. Notifications, previews, and captures of WhatsApp itself are not protected. Do not rely on this app to redact screen sharing."
+        alert.runModal()
     }
-
-    @objc private func widthChanged() {
-        let width = CGFloat(widthSlider.integerValue)
-        Settings.shared.overlayWidth = width
-        widthLabel.stringValue = "Width: \(Int(width))px"
-    }
-
-    @objc private func setBlurIntensity(_ sender: NSMenuItem) {
-        guard let value = sender.representedObject as? String else { return }
-        Settings.shared.blurIntensity = value
-
-        for item in blurIntensityMenu.items {
-            item.state = (item.representedObject as? String) == value ? .on : .off
-        }
-    }
-
-    @objc private func toggleLaunchAtLogin() {
-        Settings.shared.launchAtLogin.toggle()
-        launchAtLoginItem.state = LaunchAtLogin.isEnabled ? .on : .off
-    }
-
-    @objc private func quit() {
-        NSApplication.shared.terminate(nil)
-    }
+    @objc private func quit() { NSApp.terminate(nil) }
 }
