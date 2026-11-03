@@ -19,3 +19,18 @@ jobs:
         env:
           PRIVACY_VERIFIED_APP: ${{ github.workspace }}/dist/WhatsApp Privacy Cover.app
         run: python3 -m unittest discover -s Tests/InstallerTests -p test_signed_artifacts.py -v
+
+  selective-blur-lab:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Synthetic region and reveal tests (no GUI)
+        run: ./scripts/test-blur-lab.sh
+      - name: Build and verify separate sandboxed lab (no GUI)
+        run: ./scripts/build-blur-lab.sh
+      - name: Real lab capability and tamper rejection tests (no GUI)
+        env:
+          PRIVACY_BLUR_LAB_APP: ${{ github.workspace }}/dist/Selective Blur Lab.app
+        run: python3 -m unittest discover -s Tests/InstallerTests -p test_blur_lab_artifact.py -v
