@@ -107,3 +107,7 @@ PRIVACY_VERIFIED_APP="$PWD/dist/WhatsApp Privacy Cover.app" \
 - `.github/workflows/verify.yml`: macOS tests/build verification; no release publishing.
 
 Derived from [realhasanshoaib/whatsapp-privacy-blur](https://github.com/realhasanshoaib/whatsapp-privacy-blur), upstream base `da50ac5d4817d6098d984f9312e73b1f6c38ca05`. MIT license; see [LICENSE](LICENSE).
+
+## Selective message blur investigation
+
+The installed utility above still uses opaque covers. A separate, synthetic-only [Selective Blur Lab](Experiments/SelectiveBlurLab/README.md) tests public macOS material blur on individual invented messages/previews without adding capture or Accessibility access. It does not protect or inspect WhatsApp and is not a replacement build. See the [feasibility report](docs/research/2026-11-03-native-message-blur-feasibility.md) and [execution/gate record](docs/research/2026-11-03-selective-blur-execution.md). Visual acceptance and a real WhatsApp message-region source remain required before product integration.
