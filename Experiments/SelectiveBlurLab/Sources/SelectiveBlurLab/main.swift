@@ -9,11 +9,11 @@ final class FlippedView: NSView { override var isFlipped: Bool { true } }
 // Local fixture input only; no global monitor or keyboard inspection.
 final class PointerWindow: NSWindow {
     var onPointer: ((NSPoint) -> Void)?
-    var onScroll: ((NSEvent.Phase, NSEvent.Phase) -> Void)?
+    var onScroll: ((NSEvent.Phase, NSEvent.Phase, NSPoint) -> Void)?
     override func sendEvent(_ event: NSEvent) {
         if let location = FixturePointerEvents.location(for: event) {
             onPointer?(location)
-        } else if event.type == .scrollWheel { onScroll?(event.phase, event.momentumPhase) }
+        } else if event.type == .scrollWheel { onScroll?(event.phase, event.momentumPhase, event.locationInWindow) }
         super.sendEvent(event)
     }
 }
@@ -52,6 +52,8 @@ final class Lab: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let conversation = NSScrollView()
     private let rowCount = NSPopUpButton()
     private let material = NSPopUpButton()
+    private let tint = NSSlider(value: 0.65, minValue: 0.6, maxValue: 0.7, target: nil, action: nil)
+    private let tintLabel = NSTextField(labelWithString: "Tint 65%")
     private let evidence = NSPopUpButton()
     private let hover = NSButton(checkboxWithTitle: "Reveal hovered item (2s max)", target: nil, action: nil)
     private let status = NSTextField(labelWithString: "")
@@ -79,13 +81,13 @@ final class Lab: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let root = TrackingRootView(frame: CGRect(origin: .zero, size: window.contentView!.bounds.size))
         window.contentView = root; window.acceptsMouseMovedEvents = true
         window.onPointer = { [weak self] point in self?.pointerMoved(point) }
-        window.onScroll = { [weak self] phase, momentum in self?.scrollPhase(phase, momentum: momentum) }
+        window.onScroll = { [weak self] phase, momentum, point in self?.scrollPhase(phase, momentum: momentum, point: point) }
         root.onExit = { [weak self] in self?.pointerMoved(nil) }
         let intro = text("FEASIBILITY DEMO • Names stay clear • Only generated message regions get material blur", x: 16, y: 718, width: 1090, height: 22)
         root.addSubview(intro); intro.autoresizingMask = [.width, .minYMargin]
         rowCount.addItems(withTitles: ["1 row", "10 rows", "30 rows"]); rowCount.selectItem(at: 1)
         configure(rowCount, frame: NSRect(x: 16, y: 680, width: 95, height: 28), action: #selector(rebuild))
-        material.addItems(withTitles: ["Popover material", "HUD material", "Sheet material"])
+        material.addItems(withTitles: ["Gaussian blur", "Popover material", "HUD material", "Sheet material"])
         configure(material, frame: NSRect(x: 120, y: 680, width: 175, height: 28), action: #selector(controlsChanged))
         configure(hover, frame: NSRect(x: 310, y: 680, width: 250, height: 28), action: #selector(controlsChanged))
         evidence.addItems(withTitles: ["Known synthetic view geometry", "Window bounds only — unsupported"])
@@ -95,21 +97,26 @@ final class Lab: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let zoomButton = NSButton(title: "Text size", target: self, action: #selector(zoom))
         configure(zoomButton, frame: NSRect(x: 990, y: 680, width: 110, height: 28), action: #selector(zoom))
         let name = text("Demo contacts", x: 16, y: 635, width: 300, height: 26)
-        let header = text("Alex — generated conversation", x: 350, y: 635, width: 520, height: 26)
+        let header = text("Alex — generated conversation", x: 350, y: 635, width: 280, height: 26)
         for view in [name, header] { root.addSubview(view); view.autoresizingMask = [.minYMargin] }
+        tint.isContinuous = false
+        configure(tint, frame: NSRect(x: 650, y: 637, width: 230, height: 26), action: #selector(controlsChanged))
+        tintLabel.frame = NSRect(x: 650, y: 663, width: 230, height: 16)
+        tintLabel.font = .systemFont(ofSize: 11); tintLabel.textColor = .secondaryLabelColor
+        tintLabel.autoresizingMask = [.minYMargin]; root.addSubview(tintLabel)
         let theme = NSButton(title: "Toggle light / dark", target: self, action: #selector(changeTheme))
         configure(theme, frame: NSRect(x: 895, y: 637, width: 205, height: 28), action: #selector(changeTheme))
         sidebar.frame = NSRect(x: 16, y: 85, width: 315, height: 540)
         conversation.frame = NSRect(x: 350, y: 85, width: 750, height: 540)
         for (token, scroll) in [sidebar, conversation].enumerated() {
             let clip = ScrollAwareClipView(frame: scroll.contentView.frame)
-            clip.onWillChange = { [weak self] in self?.presentation.layoutWillChange() }
+            clip.onWillChange = { [weak self] in self?.presentation.scroll(.move, in: token, now: ProcessInfo.processInfo.systemUptime) }
             scroll.contentView = clip
             clip.postsBoundsChangedNotifications = true
-            observe(NSView.boundsDidChangeNotification, object: clip) { [weak self] in self?.presentation.layoutWillChange() }
-            observe(NSScrollView.willStartLiveScrollNotification, object: scroll) { [weak self] in self?.presentation.beginScroll(token) }
-            observe(NSScrollView.didLiveScrollNotification, object: scroll) { [weak self] in self?.presentation.layoutWillChange() }
-            observe(NSScrollView.didEndLiveScrollNotification, object: scroll) { [weak self] in self?.presentation.endScroll(token) }
+            observe(NSView.boundsDidChangeNotification, object: clip) { [weak self] in self?.presentation.scroll(.move, in: token, now: ProcessInfo.processInfo.systemUptime) }
+            observe(NSScrollView.willStartLiveScrollNotification, object: scroll) { [weak self] in self?.presentation.scroll(.prepare, in: token, now: ProcessInfo.processInfo.systemUptime) }
+            observe(NSScrollView.didLiveScrollNotification, object: scroll) { [weak self] in self?.presentation.scroll(.move, in: token, now: ProcessInfo.processInfo.systemUptime) }
+            observe(NSScrollView.didEndLiveScrollNotification, object: scroll) { [weak self] in self?.presentation.scroll(.end, in: token, now: ProcessInfo.processInfo.systemUptime) }
             scroll.hasVerticalScroller = true; scroll.drawsBackground = true
             scroll.backgroundColor = .textBackgroundColor; scroll.borderType = .bezelBorder
             scroll.autoresizingMask = [.height]; root.addSubview(scroll)
@@ -124,6 +131,7 @@ final class Lab: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // This timer expires a reveal only. It does not move, discover or rebuild masks.
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             self?.presentation.tick(now: ProcessInfo.processInfo.systemUptime)
+            self?.updateStatus()
         }
         RunLoop.main.add(timer!, forMode: .common)
     }
@@ -179,34 +187,35 @@ final class Lab: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func observe(_ name: Notification.Name, object: AnyObject, action: @escaping () -> Void) {
         observers.append(NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { _ in action() })
     }
-    private func scrollPhase(_ phase: NSEvent.Phase, momentum: NSEvent.Phase) {
-        presentation.layoutWillChange()
-        for (token, value) in [(100, phase), (101, momentum)] {
-            if value.contains(.began) || value.contains(.changed) || value.contains(.stationary) || value.contains(.mayBegin) {
-                presentation.beginScroll(token)
-            }
-            if value.contains(.ended) || value.contains(.cancelled) { presentation.endScroll(token) }
-        }
+    private func scrollPhase(_ phase: NSEvent.Phase, momentum: NSEvent.Phase, point: NSPoint) {
+        guard let pane = [sidebar, conversation].firstIndex(where: { $0.convert($0.bounds, to: nil).contains(point) }),
+              let signal = FixtureScrollEvents.signal(phase: phase, momentum: momentum) else { return }
+        presentation.scroll(signal, in: pane, now: ProcessInfo.processInfo.systemUptime)
     }
     private func pointerMoved(_ point: NSPoint?) {
         presentation.setFocus(NSApp.isActive && window.isKeyWindow)
-        let item = point.flatMap { location in targets.first { surface, clip in
-            windowRect(surface, clippedBy: clip)?.contains(location) == true
-        }?.0.regionID }
-        presentation.pointerMoved(item: item, now: ProcessInfo.processInfo.systemUptime)
+        guard let point = point else { presentation.pointerExited(now: ProcessInfo.processInfo.systemUptime); return }
+        let item = targets.first { surface, clip in windowRect(surface, clippedBy: clip)?.contains(point) == true }?.0.regionID
+        presentation.pointerMoved(item: item, position: point, now: ProcessInfo.processInfo.systemUptime)
     }
     @objc private func controlsChanged() {
         presentation.setHoverEnabled(hover.state == .on)
         presentation.setGeometryAvailable(evidence.indexOfSelectedItem == 0)
-        let selected: NSVisualEffectView.Material = [.popover, .hudWindow, .sheet][material.indexOfSelectedItem]
-        for (surface, _) in targets where surface.effect.material != selected { surface.effect.material = selected }
+        let gaussian = material.indexOfSelectedItem == 0
+        let selected: NSVisualEffectView.Material = [.popover, .popover, .hudWindow, .sheet][material.indexOfSelectedItem]
+        tint.isEnabled = gaussian; tintLabel.stringValue = "Tint \(Int((tint.doubleValue * 100).rounded()))% — blurred base stays opaque"
+        for (surface, _) in targets { surface.setStyle(gaussian: gaussian, tint: tint.doubleValue, material: selected) }
         updateStatus()
     }
     private func updateStatus() {
         if evidence.indexOfSelectedItem != 0 {
             status.stringValue = "UNSUPPORTED: window bounds do not locate messages. No masks; not protected."
+        } else if targets.contains(where: { $0.0.usesGaussian && $0.0.gaussian.renderFailed }) {
+            status.stringValue = "Gaussian rendering unavailable — generated content remains covered • Synthetic only"
+        } else if hover.state == .on && presentation.waitingForScroll {
+            status.stringValue = "Hover paused while scrolling settles — move over a message afterward • Synthetic only"
         } else {
-            status.stringValue = "In-document synthetic blur • Appearance/click/scroll acceptance pending • Does not protect WhatsApp"
+            status.stringValue = "Synthetic blur • Move over a message after scrolling stops • Appearance still needs review • Does not protect WhatsApp"
         }
     }
     func windowDidBecomeKey(_ notification: Notification) { presentation.setFocus(NSApp.isActive) }

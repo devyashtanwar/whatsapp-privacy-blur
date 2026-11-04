@@ -30,29 +30,3 @@ public enum RegionPlanner {
         return GeometryPlan(.fixtureReady, regions)
     }
 }
-public final class RevealLease {
-    private var hovered: Int?
-    private var entered: TimeInterval?
-    private var layoutEpoch: Int?
-    private var blocked = false
-    private var requiresExit = false
-    public init() {}
-    public func suspend() { requiresExit = true; blocked = true; entered = nil }
-    public func update(item: Int?, active: Bool, epoch: Int, now: TimeInterval) -> Int? {
-        guard now.isFinite, now >= 0 else { requiresExit = true; blocked = true; return nil }
-        // Nil during suspension means sampling stopped, not physical pointer exit.
-        guard active else { requiresExit = true; blocked = true; entered = nil; return nil }
-        guard let item = item else {
-            hovered = nil; entered = nil; layoutEpoch = epoch; blocked = false; requiresExit = false
-            return nil
-        }
-        if let previous = layoutEpoch, previous != epoch {
-            hovered = item; entered = nil; blocked = true; requiresExit = true
-        }
-        layoutEpoch = epoch
-        guard !requiresExit else { hovered = item; return nil }
-        if hovered != item { hovered = item; entered = now; blocked = false }
-        guard !blocked, let entered = entered, now >= entered, now - entered < 2 else { blocked = true; return nil }
-        return item
-    }
-}
