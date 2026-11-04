@@ -59,7 +59,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='blur-lab-', dir=workspace) as temp:
         work = Path(temp); snapshot = work / 'inputs'; snapshot.mkdir()
         inputs = []
-        for name in ['Package.swift', 'Sources', 'Tests']:
+        for name in ['Package.swift', 'Sources', 'Tests', 'ViewTests']:
             source = LAB / name
             if source.is_symlink(): raise ValueError('Symbolic lab input')
             candidates = sorted(source.rglob('*')) if source.is_dir() else [source]

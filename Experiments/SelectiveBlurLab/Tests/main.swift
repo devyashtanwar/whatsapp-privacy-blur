@@ -51,5 +51,14 @@ expect(suspensionLease.update(item: nil, active: false, epoch: 1, now: 20.1) == 
 expect(suspensionLease.update(item: 1, active: true, epoch: 1, now: 20.2) == nil, "focus regain cannot reveal stationary pointer")
 expect(suspensionLease.update(item: nil, active: true, epoch: 1, now: 20.3) == nil, "active pointer exit clears suspension")
 expect(suspensionLease.update(item: 1, active: true, epoch: 1, now: 20.4) == 1, "active reentry may reveal")
+// A scroll/layout callback must revoke the current lease before any movement,
+// even when no new pointer sample or timer tick has occurred.
+let movementLease = RevealLease()
+expect(movementLease.update(item: 1, active: true, epoch: 1, now: 30) == 1, "initial movement-test reveal")
+movementLease.suspend()
+expect(movementLease.update(item: 2, active: true, epoch: 1, now: 30.01) == nil, "scroll cannot reveal the next item under a stationary pointer")
+expect(movementLease.update(item: 1, active: true, epoch: 1, now: 30.02) == nil, "movement revokes old reveal without a timer")
+expect(movementLease.update(item: nil, active: true, epoch: 1, now: 30.03) == nil, "observed pointer exit clears movement latch")
+expect(movementLease.update(item: 2, active: true, epoch: 1, now: 30.04) == 2, "physical reentry after movement may reveal")
 print("\(checks) selective-region assertions, \(failures) failures")
 exit(failures == 0 ? 0 : 1)

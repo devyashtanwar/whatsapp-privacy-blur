@@ -37,6 +37,7 @@ public final class RevealLease {
     private var blocked = false
     private var requiresExit = false
     public init() {}
+    public func suspend() { requiresExit = true; blocked = true; entered = nil }
     public func update(item: Int?, active: Bool, epoch: Int, now: TimeInterval) -> Int? {
         guard now.isFinite, now >= 0 else { requiresExit = true; blocked = true; return nil }
         // Nil during suspension means sampling stopped, not physical pointer exit.
