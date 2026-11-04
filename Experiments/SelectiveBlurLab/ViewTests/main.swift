@@ -79,7 +79,12 @@ let visibleBlur = first.effect.convert(first.effect.bounds, to: clip).intersecti
 expect(visibleBody == visibleBlur && visibleBody.height > 0 && visibleBody.height < 100, "partially visible blur clips with content")
 first.frame.size = CGSize(width: 320, height: 110)
 first.layoutSubtreeIfNeeded()
-expect(first.effect.frame == first.bounds, "resizing content resizes its blur in the same tree")
+expect(first.effect.frame == first.bounds, "resizing content resizes its blur in the same tree: effect \(first.effect.frame), content \(first.bounds)")
+for size in [NSSize(width: 320.25, height: 110.5), NSSize(width: 301.75, height: 91.125), NSSize(width: 450.125, height: 80.75)] {
+    first.setFrameSize(size)
+    first.layoutSubtreeIfNeeded()
+    expect(first.effect.frame == first.bounds, "fractional resize retains exact coverage: effect \(first.effect.frame), content \(first.bounds)")
+}
 controller.setHoverEnabled(false)
 expect(surfaces.allSatisfy(\.isBlurred), "hover off restores all masks")
 // Exercise actual NSEvent classification used by PointerWindow, without a window.

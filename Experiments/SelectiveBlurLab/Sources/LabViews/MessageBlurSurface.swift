@@ -8,16 +8,24 @@ public final class ClickThroughEffect: NSVisualEffectView {
 }
 public final class MessageBlurSurface: NSView {
     public let regionID: Int
+    private let messageContent: NSView
     public let effect = ClickThroughEffect()
     public var isBlurred: Bool { !effect.isHidden }
     public init(id: Int, content: NSView, frame: CGRect) {
-        regionID = id
+        regionID = id; messageContent = content
         super.init(frame: frame)
         content.frame = bounds; content.autoresizingMask = [.width, .height]
         addSubview(content)
         effect.frame = bounds; effect.autoresizingMask = [.width, .height]
         effect.blendingMode = .withinWindow; effect.state = .active; effect.material = .popover
         addSubview(effect) // Protected before this container is attached/displayed.
+    }
+    public override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        // Autoresizing may round child frames on older AppKit versions. Keep
+        // both views at the same exact local bounds, including fractional sizes.
+        if messageContent.frame != bounds { messageContent.frame = bounds }
+        if effect.frame != bounds { effect.frame = bounds }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
     public func setBlurred(_ blurred: Bool) {
