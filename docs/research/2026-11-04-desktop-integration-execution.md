@@ -44,3 +44,6 @@ Final: fixed premature repeated-stop status and lifecycle uncertainty — determ
 Final: fixed missing bootstrap enforcement — four bypass mutations RED→GREEN; reviewed bootstrap/source policy pins and required Security imports enforced; signed-artifact tests reject gate provenance mutation and a replacement binary lacking validation, without executing either.
 
 Task 1 is implemented/verified; Task 2 is a partial user-operated access checkpoint. Gate A must be tested manually before accepting a real-window integration result. Tasks 3–5 (real message detection, overlays and full settings behavior), live gates and production promotion remain incomplete. The draft PR must not be merged as finished WhatsApp privacy protection.
+
+
+CI follow-up (2026-11-09): initial PR6 run42644421512 cancelled the cover/lab jobs before running any steps because they still requested macos-14. GitHub retired that image on2026-11-02 (https://github.com/actions/runner-images/issues/13518). Ruling: migrate those jobs to macos-15, matching the new preview job, without disabling any test or changing deployment targets. Cost: CI no longer exercises14 directly; live old-OS compatibility remains unverified rather than inferred from newer runners. Preview still requires15.2; existing app/lab minimums are unchanged.
