@@ -4,7 +4,7 @@ Status: proposed for user review, not implemented. Date: 2026-11-04.
 
 ## Intent and approved direction
 
-Bring the accepted synthetic lab's selective Gaussian appearance and per-item hover behavior to the existing native WhatsApp Desktop app through a separate companion. The user accepted the lab appearance and interaction, and explicitly authorized receiving pixels of a WhatsApp window they select. This authorizes planning a narrowly scoped capture path; it does not authorize broad desktop capture, Accessibility, OCR, database access, or automatic installation/permission grants.
+Bring the accepted synthetic lab's selective Gaussian appearance and per-item hover behavior to the existing native WhatsApp Desktop app through a separate companion. The user accepted the lab appearance and interaction, and explicitly authorized receiving pixels of a WhatsApp window they select. That initial consent authorized a narrowly scoped capture path, not broad desktop capture, Accessibility, OCR, database access, or automatic installation/permission grants. The subsequent, separate on-device OCR investigation approval is recorded below; all other boundaries remain unchanged.
 
 The user additionally requires independent control of sidebar message previews, the opened conversation's messages, names and avatars. A conversation-only mode means message content, not the whole conversation pane or window. The tint range is user-specified at 40–90%, initially 65%.
 
@@ -51,7 +51,7 @@ Settings are session-only in the first version, matching current privacy constra
 - Reuse offline publisher/process-generation checks. A matching title/icon/bundle ID alone is insufficient. Revalidate selection changes, target replacement and PID/window reuse. Never substitute another window silently.
 - The selected window's pixels can include names, composer text, media and messages even when only one category is blurred. Blur switches change output coverage, not capture permission or the complete incoming frame. Disclose this plainly; do not claim sidebar-only mode reads only sidebar pixels.
 - No network entitlement, telemetry, remote services, file export, chat history, logs of private content, keyboard/clipboard monitoring, audio, microphone, camera, location, Accessibility, database reads or hidden helper. No third-party runtime dependency or downloaded model.
-- Initially use local structural image analysis. No OCR, semantic message parsing, recognized strings or model download is authorized. If this cannot supply correct regions, return with evidence and a new decision rather than silently broadening access.
+- Initially use local structural image analysis. On 2026-11-09 the user explicitly authorized investigation of Apple on-device OCR for UI anchors within the explicitly selected window: transient recognized strings only, no logging/storage/network or broader OS permissions. This does not authorize semantic message parsing or model downloads, nor prove a production layout provider. The investigation is isolated from runtime capture until a provider and its processing budget are reviewed; if it cannot supply correct regions, report the evidence rather than silently broadening access.
 - Keep bounded work: one current frame plus one pending input frame; drop superseded input. Account separately for filter/intermediate GPU memory and establish measured limits before rollout. No recording output or disk frame cache. Release app-owned frames on stop/pause/lock/session loss/selection loss; do not claim forensic zeroization of framework/GPU memory.
 - Explicitly disable audio output/capture and camera-dependent effects. Picker/filter changes require validation before processing resumes. Do not log or persist picker metadata, window titles or screen content.
 - Preserve hardened runtime, exact entitlements, signed capability policy and source/binary audits. Introduce a narrow, separately verified capture profile first; do not relax the current cover or lab policies to make a prototype build.
@@ -97,3 +97,5 @@ User amendment: tint range widened to 40–90% with the initial value unchanged 
 - Material appearance differs from controlled Gaussian filtering: https://developer.apple.com/documentation/appkit/nsvisualeffectview
 
 These sources describe APIs, not successful WhatsApp-specific segmentation, consent scope enforcement or scroll privacy. Those remain experiments with explicit stop conditions.
+
+Investigation update 2026-11-09: candidate UI-anchor OCR is authorized and tested with generated content; no real-message geometry/provider or production masks have been demonstrated. See docs/research/2026-11-09-region-detection-feasibility.md.

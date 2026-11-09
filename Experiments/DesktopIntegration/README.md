@@ -48,3 +48,8 @@ Success validates only this machine's selected-window access path. It does not v
 `./scripts/test-desktop-preview.sh` runs pure settings/session/scope/policy tests and tests the actual ScreenCaptureKit configuration object. It constructs no picker, window or stream. Signed-artifact negative tests run with `PRIVACY_DESKTOP_PREVIEW_APP` pointing to a built bundle; they never execute it.
 
 All preview files/build/capability rules are separate from the existing installed cover and lab. No login launch, saved selection, automatic resume or production replacement is included.
+
+
+## Region detection investigation
+
+The test command also runs `GeometryTests`, using only invented content generated in memory and Apple's geometry-only text detector. It demonstrates text locations but not semantic message/name roles or image-message coverage. This is not connected to live captured frames and does not enable real-chat blur. See `docs/research/2026-11-09-region-detection-feasibility.md`. The user authorized a narrow on-device OCR investigation. It remains isolated from runtime capture and returns only whitelisted candidate UI labels/bounds; it is not a message detector or production protection. The capture executable still has no OCR path.

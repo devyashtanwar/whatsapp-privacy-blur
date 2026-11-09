@@ -1,5 +1,6 @@
 import Foundation
 import IntegrationCore
+import CoreGraphics
 var failures = 0
 var count = 0
 func check(_ value: @autoclosure () -> Bool, _ message: String) {
@@ -134,5 +135,67 @@ _ = hanging.requestStop(now: 35)
 check(hanging.poll(now: 35.2) == .terminate && !hanging.canBegin, "repeated stop cannot postpone shutdown deadline")
 let invalidClock = StreamLifetime(); _ = invalidClock.begin(now: 40)
 check(invalidClock.requestStop(now: .nan) == .terminate, "invalid lifecycle clock fails closed")
+// Future production provider contract; positives are invented annotations, not real-layout evidence.
+let binding = FrameBinding(session: 11, sequence: 2, windowID: 42, processID: 123,
+                           processGeneration: 10, capturedAt: 100, width: 900, height: 700, scale: 2, windowFrame: CGRect(x: 100,y: 100,width: 450,height: 350))
+let annotations = [DetectedRegion(id: 1, category: .sidebarPreview, bounds: CGRect(x: 90,y: 50,width: 180,height: 20)),
+                   DetectedRegion(id: 2, category: .conversationMessage, bounds: CGRect(x: 400,y: 150,width: 300,height: 60)),
+                   DetectedRegion(id: 3, category: .contactName, bounds: CGRect(x: 90,y: 80,width: 180,height: 20)),
+                   DetectedRegion(id: 4, category: .avatar, bounds: CGRect(x: 30,y: 45,width: 45,height: 45))]
+let annotated = RegionSnapshot(frame: binding, evidence: .supportedLayout, supportedCategories: BlurCategory.allCases,
+                               regions: annotations, controls: [CGRect(x: 0,y: 650,width: 900,height: 50)])
+func regionResult(_ input: RegionSnapshot, expected: FrameBinding = binding, settings: BlurSettings = BlurSettings(),
+                  now: Double = 100.05, maxAge: Double = 0.1) -> RegionPlan {
+    RegionValidator.validate(input, expected: expected, settings: settings, now: now, maxAge: maxAge)
+}
+for bits in 0..<16 {
+    let settings = BlurSettings(sidebarPreviews: bits & 1 != 0, conversationMessages: bits & 2 != 0,
+                                names: bits & 4 != 0, avatars: bits & 8 != 0)
+    let result = regionResult(annotated, settings: settings)
+    let wanted: [UInt64] = [(bits & 1 != 0 ? 1 : nil), (bits & 2 != 0 ? 2 : nil),
+                            (bits & 4 != 0 ? 3 : nil), (bits & 8 != 0 ? 4 : nil)].compactMap { $0 }
+    check(result.state == (bits == 0 ? .disabled : .ready) && result.regions.map(\.id) == wanted, "region selection combination \(bits)")
+}
+for evidence in [RegionEvidence.textGeometryOnly, .syntheticFixture] {
+    var x = annotated; x.evidence = evidence
+    check(regionResult(x).state == .unsupported && regionResult(x).regions.isEmpty, "generic text or lab geometry cannot become real protection")
+}
+for change in 0..<11 {
+    var x = annotated
+    switch change {
+    case 0: x.frame.session = 12
+    case 1: x.frame.sequence = 1
+    case 2: x.frame.windowID = 43
+    case 3: x.frame.processID = 124
+    case 4: x.frame.processGeneration = 11
+    case 5: x.frame.width = 899
+    case 6: x.frame.height = 699
+    case 7: x.frame.scale = 1
+    case 8: x.frame.capturedAt = 99.99
+    case 9: x.frame.windowFrame.origin.x += 1
+    default: x.frame.windowFrame.size.width += 1
+    }
+    check(regionResult(x).state == .mismatch && regionResult(x).regions.isEmpty, "reject mismatched pixel/geometry provenance \(change)")
+}
+check(regionResult(annotated, now: 100.11).state == .stale, "age budget enforced")
+check(regionResult(annotated, now: 99).state == .stale, "future captured frame rejected")
+check(regionResult(annotated, now: .nan).state == .invalid, "nonfinite current time rejected")
+check(regionResult(annotated, maxAge: 0).state == .invalid, "invalid freshness budget rejected")
+var noLayout = annotated; noLayout.supportedCategories = [.sidebarPreview]
+check(regionResult(noLayout).state == .unsupported, "partial support cannot claim both message categories")
+var duplicate = annotated; duplicate.regions.append(annotations[0])
+check(regionResult(duplicate).state == .invalid, "duplicate region IDs rejected")
+for bounds in [CGRect(x: -1,y: 5,width: 30,height: 20), CGRect(x: 5,y: 5,width: 0,height: 20),
+               CGRect(x: 890,y: 5,width: 30,height: 20), CGRect(x: CGFloat.nan,y: 5,width: 30,height: 20),
+               CGRect(x: 5,y: 660,width: 30,height: 20)] {
+    var x = annotated; x.regions = [DetectedRegion(id: 1, category: .sidebarPreview, bounds: bounds)]
+    check(regionResult(x).state == .invalid, "invalid or control-overlapping mask rejected")
+}
+var identityOverlap = annotated
+identityOverlap.regions = [DetectedRegion(id: 1, category: .sidebarPreview, bounds: CGRect(x: 90,y: 50,width: 180,height: 50)), annotations[2]]
+check(regionResult(identityOverlap).state == .invalid, "preview cannot conceal disabled name category")
+var badFrame = binding; badFrame.width = 0
+var badSnapshot = annotated; badSnapshot.frame = badFrame
+check(regionResult(badSnapshot, expected: badFrame).state == .invalid, "invalid frame dimensions rejected")
 print("\(count) integration assertions, \(failures) failures")
 if failures > 0 { exit(1) }

@@ -29,7 +29,7 @@ class PreviewPolicyTests(unittest.TestCase):
                      'SCShareableContent.current', 'SCScreenshotManager.captureImage()',
                      'addGlobalMonitorForEvents()', 'NSPasteboard.general', 'UserDefaults.standard',
                      'SecCodeCheckValidity(code, [], nil)', 'captureMicrophone = true', 'capturesAudio = true',
-                     'let output = SCRecordingOutput()', 'let p = Process()']:
+                     'let output = SCRecordingOutput()', 'let p = Process()', 'VNRecognizeTextRequest()', 'RecognizeTextRequest()']:
             with self.subTest(text=text), self.assertRaises(ValueError):
                 audit_sources({'Sources/Fixture.swift': text})
 
@@ -64,3 +64,29 @@ class PreviewBootstrapTests(unittest.TestCase):
                 del source['Sources/DesktopBlurPreview/main.swift']
             with self.subTest(mutate=mutate), self.assertRaises(ValueError):
                 audit_bootstrap(source)
+
+class OCRInvestigationScopeTests(unittest.TestCase):
+    def test_only_the_isolated_research_source_can_request_ocr(self):
+        audit_sources({'Sources/GeometryAnalysis/UIAnchorRecognition.swift': 'import Vision\nlet request = VNRecognizeTextRequest()'})
+        with self.assertRaises(ValueError):
+            audit_sources({'Sources/CaptureAdapter/Other.swift': 'import Vision\nlet request = VNRecognizeTextRequest()'})
+
+    def test_research_permission_does_not_allow_network_or_runtime_linking(self):
+        with self.assertRaises(ValueError):
+            audit_sources({'Sources/GeometryAnalysis/UIAnchorRecognition.swift': 'URLSession.shared'})
+        with self.assertRaises(ValueError):
+            audit_sources({'Sources/CaptureAdapter/Other.swift': 'import GeometryAnalysis'})
+
+    def test_research_dependency_cannot_enter_the_capture_graph(self):
+        package = (ROOT / 'Experiments/DesktopIntegration/Package.swift').read_text()
+        changed = package.replace('dependencies: ["IntegrationCore", "PrivacyCore"]', 'dependencies: ["IntegrationCore", "PrivacyCore", "GeometryAnalysis"]')
+        with self.assertRaises(ValueError): audit_sources({'Package.swift': changed})
+
+    def test_concatenated_dependency_or_source_remapping_rejected(self):
+        package = (ROOT / 'Experiments/DesktopIntegration/Package.swift').read_text()
+        changes = [package.replace('dependencies: ["IntegrationCore", "PrivacyCore"]',
+                                   'dependencies: ["IntegrationCore", "PrivacyCore"] + ["GeometryAnalysis"]'),
+                   package.replace('path: "Inputs/PrivacyCore"', 'path: "Sources/GeometryAnalysis"')]
+        for changed in changes:
+            with self.subTest(remapped=changed), self.assertRaises(ValueError):
+                audit_sources({'Package.swift': changed})

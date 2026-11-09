@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PREVIEW = ROOT / 'Experiments/DesktopIntegration'
 BUNDLE_ID = 'devyashtanwar.whatsapp-blur-preview'
 APP_NAME = 'WhatsApp Blur Integration Preview.app'
+# Swift manifests are executable code, not a safely parseable dependency-list format.
+# Any graph/source mapping change must be reviewed before updating this pin.
+APPROVED_MANIFEST = '2eccdec1ef3a74e4b9ad82167473399b2078782e2cb67636722c89bc3ef12b8f'
 REQUIRED_POLICY = dict(schemaVersion=1, bundleIdentifier=BUNDLE_ID,
     entitlements={'com.apple.security.app-sandbox': True},
     forbiddenCapabilities=[v for v in CAPABILITIES if v != 'screen-capture'],
@@ -31,6 +34,13 @@ def audit_sources(sources):
         if not path.endswith('.swift'): continue
         if path.endswith('Package.swift') and re.search(r'\.(?:package|binaryTarget|plugin|unsafeFlags)\s*\(', source):
             raise ValueError('Preview dependencies/plugins are forbidden')
+        if path == 'Package.swift' and hashlib.sha256(source.encode()).hexdigest() != APPROVED_MANIFEST:
+            raise ValueError('Unreviewed package graph or source mapping')
+        research_ocr = path == 'Sources/GeometryAnalysis/UIAnchorRecognition.swift'
+        if not research_ocr and re.search(r'\b(?:VNRecognizeTextRequest|RecognizeTextRequest)\b', source):
+            raise ValueError('OCR is authorized only in the isolated UI-anchor investigation')
+        if path.startswith('Sources/') and not path.startswith('Sources/GeometryAnalysis/') and re.search(r'\bimport\s+GeometryAnalysis\b', source):
+            raise ValueError('Unaccepted geometry research must not be linked to live capture')
         patterns = SOURCE_PATTERNS + [
             r'AXUIElement|AXIsProcessTrusted|CGWindowListCreateImage|CGDisplayCreateImage|SCShareableContent|SCScreenshotManager|SCRecordingOutput',
             r'\b(?:capturesAudio|captureMicrophone)\s*=\s*true',
@@ -64,7 +74,7 @@ def snapshot_inputs(repo=ROOT):
         source_map = {}
         entries = []
         inputs = []
-        for name in ['Package.swift', 'Sources', 'Tests', 'AdapterTests', 'Security']:
+        for name in ['Package.swift', 'Sources', 'Tests', 'AdapterTests', 'GeometryTests', 'Security']:
             inputs.append((preview / name, Path(name)))
         inputs.extend([(repo / 'Sources/PrivacyCore', Path('Inputs/PrivacyCore')),
                        (repo / 'Sources/HideWhatsApp/ProcessIdentity.swift', Path('Sources/CaptureAdapter/ProcessIdentity.swift'))])
@@ -81,7 +91,7 @@ def snapshot_inputs(repo=ROOT):
                 target = snapshot / relative; target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data); target.chmod(0o444)
                 entries.append({'source': str(path.relative_to(repo)), 'compiledPath': str(relative), 'sha256': hashlib.sha256(data).hexdigest()})
-                if relative.suffix == '.swift' and relative.parts[0] not in {'Tests', 'AdapterTests'}:
+                if relative.suffix == '.swift' and relative.parts[0] not in {'Tests', 'AdapterTests', 'GeometryTests'}:
                     source_map[str(relative)] = data.decode()
         validate_policy(json.loads((snapshot / 'Security/CapabilityPolicy.json').read_text()))
         audit_sources(source_map)
@@ -119,6 +129,8 @@ def verify_preview(app):
             raise ValueError('Invalid preview input record')
         paths.add(path)
     recorded = {entry['compiledPath']: entry['sha256'] for entry in entries}
+    if recorded.get('Package.swift') != APPROVED_MANIFEST:
+        raise ValueError('Unreviewed runtime graph provenance')
     if any(recorded.get(path) != expected for path, expected in APPROVED_BOOTSTRAP.items()):
         raise ValueError('Unreviewed or missing startup gate provenance')
     subprocess.run(['codesign', '--verify', '--strict', '--all-architectures', str(app)], check=True, capture_output=True)
@@ -141,11 +153,12 @@ def verify_preview(app):
         raise ValueError('Broad content enumeration, recording or input monitoring')
     for line in subprocess.check_output(['otool', '-L', str(binary)], text=True).splitlines()[1:]:
         if not line.strip().startswith(('/System/Library/', '/usr/lib/')): raise ValueError('Non-system preview library')
+        if '/Vision.framework/' in line: raise ValueError('Unaccepted research framework in capture binary')
     print('Verified preview identity, sandbox-only grants, runtime, selected-window policy and sealed inputs.')
 
 def run_tests():
     with snapshot_inputs() as (work, snapshot, _):
-        for product in ['IntegrationTests', 'AdapterTests']:
+        for product in ['IntegrationTests', 'AdapterTests', 'GeometryTests']:
             subprocess.run(swift_command(work, snapshot, 'run') + [product], check=True)
 
 def build():

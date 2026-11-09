@@ -76,3 +76,14 @@ class DesktopPreviewArtifactTests(unittest.TestCase):
         shutil.copyfile('/usr/bin/true', self.app / 'Contents/MacOS/DesktopBlurPreview')
         self.resign()
         with self.assertRaises(ValueError): verify_preview(self.app)
+
+    def test_resigned_vision_linkage_rejected(self):
+        # Alter only this disposable fixture's load command; never execute it.
+        binary = self.app / 'Contents/MacOS/DesktopBlurPreview'
+        libraries = subprocess.check_output(['otool', '-L', str(binary)], text=True)
+        appkit = next(line.strip().split(' ')[0] for line in libraries.splitlines()[1:] if '/AppKit.framework/' in line)
+        vision = '/System/Library/Frameworks/Vision.framework/Versions/A/Vision'
+        subprocess.run(['install_name_tool', '-change', appkit, vision, str(binary)], check=True, capture_output=True)
+        self.resign()
+        with self.assertRaisesRegex(ValueError, 'Unaccepted research framework'):
+            verify_preview(self.app)
