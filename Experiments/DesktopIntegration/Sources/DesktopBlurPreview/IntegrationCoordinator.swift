@@ -2,16 +2,17 @@ import AppKit
 import CoreGraphics
 import CaptureAdapter
 import IntegrationCore
-import GeometryAnalysis
+import DesktopPipeline
 import NativeRendering
 
 /// Experimental native integration. No supported/protected status is emitted here.
 final class IntegrationCoordinator {
     let capture = SelectedWindowCapture()
+    var onCaptureStopped:((CaptureStopReason)->Void)?
     var onStatus: ((String) -> Void)?
-    private var settings = BlurSettings()
+    private(set) var settings = BlurSettings()
     private let worker = DispatchQueue(label: "local.whatsapp.region-render",qos: .userInitiated)
-    private let gate = PublicationGate()
+    private let gate = FramePipeline()
     private var hover = ExternalHover()
     private var timer: Timer?
     private var latest: CapturedWindowFrame?
@@ -24,11 +25,11 @@ final class IntegrationCoordinator {
     private var activity: UInt64 = 0
     private var renderedReveal: UInt64?
     private var wasFrontmost = false
-    private var overlay: NSWindow?
-    private var imageView: NSImageView?
+    private let presentation = TargetPresentation()
 
-    init() {
-        capture.onStopped = { [weak self] in self?.clear() }
+    init(settings:BlurSettings = BlurSettings()) {
+        self.settings = settings
+        capture.onStopped = { [weak self] in guard let self = self else { return };self.clear();self.onCaptureStopped?(self.capture.stopReason) }
         capture.onActivity = { [weak self] in
             guard let self = self else { return }
             self.activity &+= 1
@@ -68,15 +69,10 @@ final class IntegrationCoordinator {
         guard !busy,settings.needsCapture,capture.isCapturing,let input = pending else { return }
         pending = nil
         busy = true
+        capture.trace.record(.analyzing,now:ProcessInfo.processInfo.systemUptime)
         let revision = gate.revision, options = settings
         worker.async { [weak self] in
-            let result: (CGImage,RegionPlan,Bool)? = autoreleasepool {
-                guard let detection = try? NativeLayoutDetector.detect(input.image),
-                      detection.regions.contains(where: { options.isEnabled($0.category) }) else { return nil }
-                let plan = RegionPlan(.experimental,regions: detection.regions)
-                guard let rendered = FrameCompositor.render(input.image,plan: plan,settings: options) else { return nil }
-                return (rendered,plan,detection.conversationAvailable)
-            }
+            let result = autoreleasepool { FrameProcessor.process(input,settings:options) }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.busy = false
@@ -88,35 +84,45 @@ final class IntegrationCoordinator {
                 }
                 let now = ProcessInfo.processInfo.systemUptime
                 guard let result = result else {
-                    self.withdraw(); self.displayed = nil; self.displayedPlan = nil; self.blurred = nil
+                    self.discardPublication()
                     self.onStatus?("Selected blur categories could not be located. No rendering is active; keep a supported chat list visible.")
                     return
                 }
-                guard self.gate.prepare(revision: revision,frame: bound.binding,
-                    currentWindow: self.capture.validatedWindowFrame(for: bound.binding),
-                    now: now) else {
-                    self.withdraw(); self.onStatus?("Frame delayed or window changed. No current rendering; coverage is unverified."); return
+                var current = result; current.source = bound
+                let delivery = self.gate.deliver(current,revision:revision,
+                    currentWindow:self.capture.validatedWindowFrame(for:bound.binding),now:now) { processed in
+                    self.capture.trace.record(.prepared,now:ProcessInfo.processInfo.systemUptime)
+                    self.cachePrepared(current)
+                    return self.present(processed.image,for:bound.binding)
                 }
-                self.displayed = bound; self.displayedPlan = result.1; self.blurred = result.0; self.renderedReveal = nil
-                self.conversationAvailable = result.2
-                if self.present(result.0,for: bound.binding) { self.reportRendering() }
-                else { self.onStatus?("Image prepared locally. Return to the selected WhatsApp window to see experimental rendering.") }
+                switch delivery {
+                case .rejected: self.discardPublication(); self.onStatus?("Frame delayed or window changed. No current rendering; coverage is unverified.")
+                case .displayed: self.reportRendering()
+                case .prepared: self.onStatus?("Image prepared; native window ordering is unconfirmed. No current overlay.")
+                }
+
             }
         }
     }
     private func tick() {
         guard capture.isCapturing,let latest = latest else { withdraw(); return }
         let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier == latest.binding.processID
-        if !foreground { visibilityLost(); wasFrontmost = false; return }
-        if !wasFrontmost {
+        if !foreground { hover.visibilityChanged(false,now:ProcessInfo.processInfo.systemUptime); if renderedReveal != nil { restoreBlur() };wasFrontmost = false }
+        if foreground && !wasFrontmost {
             wasFrontmost = true; hover = ExternalHover(); activity &+= 1
             hover.newFrame(sequence: activity,now: ProcessInfo.processInfo.systemUptime)
             if displayed?.binding.sequence != latest.binding.sequence { pending = latest; pump() }
         }
         guard let current = displayed, let plan = displayedPlan else { withdraw(); return }
+        guard DisplayFreshness.allows(current.binding,latestReceivedSequence:capture.latestReceivedSequence,now:ProcessInfo.processInfo.systemUptime) else {
+            discardPublication();onStatus?("Processed image expired while content changed. No current rendering; WhatsApp is visible.");return
+        }
         guard visible(current.binding) else { visibilityLost(); return }
         hover.visibilityChanged(true,now: ProcessInfo.processInfo.systemUptime)
-        if overlay?.isVisible != true,let blurred = blurred, present(blurred,for: current.binding) { reportRendering() }
+        if presentation.isVisible {
+            guard presentation.maintainOrder(target:current.binding.windowID) else { visibilityLost();return }
+        } else if let blurred = blurred,present(blurred,for:current.binding) { reportRendering() }
+        guard foreground else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard latest.binding.sequence == current.binding.sequence,now-latest.binding.capturedAt <= 1 else {
             hover.invalidate(); restoreBlur()
@@ -126,6 +132,9 @@ final class IntegrationCoordinator {
         guard let primary = NSScreen.screens.first else { return }
         let quartz = CGPoint(x: point.x,y: primary.frame.maxY-point.y)
         let r = current.binding.windowFrame
+        guard presentation.hoverRegions(binding:current.binding).contains(where:{$0.contains(quartz)}) else {
+            hover.visibilityChanged(false,now:now);restoreBlur();return
+        }
         let pixel = CGPoint(x: (quartz.x-r.minX)*CGFloat(current.binding.width)/r.width,
                             y: (r.maxY-quartz.y)*CGFloat(current.binding.height)/r.height)
         // Identity wins overlapping hit tests and can never be revealed.
@@ -152,6 +161,14 @@ final class IntegrationCoordinator {
             }
         }
     }
+    var hasPreparedImage:Bool { displayed != nil && displayedPlan != nil && blurred != nil }
+    func cachePrepared(_ processed:ProcessedWindowFrame) {
+        displayed = processed.source;displayedPlan = processed.plan;blurred = processed.image;renderedReveal = nil
+        conversationAvailable = processed.conversationAvailable
+    }
+    func discardPublication() {
+        hover.invalidate();displayed = nil;displayedPlan = nil;blurred = nil;renderedReveal = nil;withdraw()
+    }
     private func restoreBlur() {
         renderedReveal = nil
         if let image = blurred,let binding = displayed?.binding,visible(binding) { present(image,for: binding) }
@@ -161,40 +178,19 @@ final class IntegrationCoordinator {
         hover.visibilityChanged(false,now: ProcessInfo.processInfo.systemUptime)
         activity &+= 1; renderedReveal = nil; withdraw()
     }
-    private func visible(_ binding: FrameBinding) -> Bool {
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == binding.processID,
-              capture.validatedWindowFrame(for: binding) == binding.windowFrame else { return false }
-        // Metadata only, never titles/pixels: don't draw through windows above the selected target.
-        guard let records = CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow,.excludeDesktopElements],binding.windowID) as? [[String: Any]] else { return false }
-        for record in records {
-            if (record[kCGWindowNumber as String] as? NSNumber)?.intValue == overlay?.windowNumber { continue }
-            guard let alpha = record[kCGWindowAlpha as String] as? NSNumber,alpha.doubleValue > 0,
-                  let bounds = record[kCGWindowBounds as String] as? [String: Any],let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { continue }
-            if rect.intersects(binding.windowFrame.insetBy(dx: 2,dy: 2)) { return false }
-        }
-        return true
+    private func visible(_ binding:FrameBinding) -> Bool {
+        capture.validatedWindowFrame(for:binding) == binding.windowFrame
     }
     private func reportRendering() {
         let missing = settings.conversationMessages && !conversationAvailable ? " Conversation detection unavailable in this view." : ""
         onStatus?("Experimental rendering. Coverage unverified." + missing)
     }
-    @discardableResult private func present(_ image: CGImage,for binding: FrameBinding) -> Bool {
-        guard visible(binding),let primary = NSScreen.screens.first else { visibilityLost(); return false }
-        if overlay == nil {
-            let window = NSWindow(contentRect: .zero,styleMask: .borderless,backing: .buffered,defer: false)
-            window.isReleasedWhenClosed = false; window.ignoresMouseEvents = true
-            window.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue+1)
-            window.backgroundColor = .clear; window.isOpaque = false; window.hasShadow = false
-            window.collectionBehavior = [.transient,.ignoresCycle]
-            let view = NSImageView(); view.imageScaling = .scaleAxesIndependently
-            view.wantsLayer = true; view.layer?.cornerRadius = 10; view.layer?.masksToBounds = true
-            window.contentView = view; overlay = window; imageView = view
-        }
-        let rect = binding.windowFrame
-        let frame = CGRect(x: rect.minX,y: primary.frame.maxY-rect.maxY,width: rect.width,height: rect.height)
-        imageView?.image = NSImage(cgImage: image,size: frame.size)
-        overlay?.setFrame(frame,display: false); overlay?.orderFrontRegardless(); return true
+    @discardableResult private func present(_ image:CGImage,for binding:FrameBinding) -> Bool {
+        guard DisplayFreshness.allows(binding,latestReceivedSequence:capture.latestReceivedSequence,now:ProcessInfo.processInfo.systemUptime) else { discardPublication();return false }
+        guard visible(binding),let primary = NSScreen.screens.first else { visibilityLost();return false }
+        guard presentation.install(image,binding:binding,primaryMaxY:primary.frame.maxY) else { return false }
+        capture.trace.record(.displayed,now:ProcessInfo.processInfo.systemUptime);return true
     }
-    private func withdraw() { overlay?.orderOut(nil); imageView?.image = nil }
+    private func withdraw() { presentation.withdraw() }
     deinit { timer?.invalidate() }
 }

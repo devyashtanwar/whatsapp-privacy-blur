@@ -49,6 +49,17 @@ class DesktopPreviewArtifactTests(unittest.TestCase):
         policy = json.loads(path.read_text()); policy['captureScope'] = 'display'; path.write_text(json.dumps(policy)); self.resign()
         with self.assertRaises(ValueError): verify_preview(self.app)
 
+    def test_resigned_preference_scope_widening_rejected(self):
+        path = self.app / 'Contents/Resources/capability-policy.json'
+        policy = json.loads(path.read_text()); policy['preferenceScope'] = 'arbitrary-files'
+        path.write_text(json.dumps(policy)); self.resign()
+        with self.assertRaises(ValueError): verify_preview(self.app)
+
+    def test_resigned_unrelated_permission_rejected(self):
+        path = self.app / 'Contents/Info.plist'; info = plistlib.loads(path.read_bytes())
+        info['NSMicrophoneUsageDescription'] = 'forbidden'; path.write_bytes(plistlib.dumps(info)); self.resign()
+        with self.assertRaises(ValueError): verify_preview(self.app)
+
     def test_sealed_resources_required(self):
         path = self.app / 'Contents/Resources/source-manifest.json'
         data = json.loads(path.read_text()); data['baseRevision'] = 'tampered'; path.write_text(json.dumps(data))

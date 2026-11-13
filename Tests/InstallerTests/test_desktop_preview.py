@@ -6,7 +6,7 @@ import sys
 import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from desktop_preview import validate_policy, audit_sources, audit_bootstrap
+from desktop_preview import validate_policy, audit_sources, audit_bootstrap, APPROVED_BOOTSTRAP
 
 class PreviewPolicyTests(unittest.TestCase):
     def setUp(self):
@@ -36,14 +36,28 @@ class PreviewPolicyTests(unittest.TestCase):
     def test_window_capture_and_offline_validation_allowed(self):
         audit_sources({'Sources/Fixture.swift': 'import ScreenCaptureKit\nlet stream: SCStream? = nil\nconfiguration.capturesAudio = false'})
 
+    def test_automatic_capabilities_stay_in_narrow_reviewed_adapters(self):
+        for text in ['CGRequestScreenCaptureAccess()', 'CGPreflightScreenCaptureAccess()',
+                     'SCContentFilter(display: display, excludingWindows: [])',
+                     'SCContentFilter(display: display, including: apps, exceptingWindows: [])',
+                     'try data.write(to: target)', 'FileManager.default.createDirectory(at: target)']:
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                audit_sources({'Sources/Unexpected.swift': text})
+        for name in ['Sources/CaptureAdapter/WhatsAppDiscovery.swift', 'Sources/CaptureAdapter/AutomaticWindowCapture.swift',
+                     'Sources/CaptureAdapter/ScreenPermission.swift', 'Sources/DesktopBlurPreview/PreferenceStore.swift']:
+            sources = {key: (ROOT / 'Experiments/DesktopIntegration' / key).read_text() for key in APPROVED_BOOTSTRAP}
+            sources[name] += '\n// changed reviewed boundary\n'
+            with self.subTest(path=name), self.assertRaises(ValueError): audit_bootstrap(sources)
+        changed = copy.deepcopy(self.policy);changed['preferenceScope'] = 'user-files'
+        with self.assertRaises(ValueError): validate_policy(changed)
+
     def test_dependencies_rejected(self):
         with self.assertRaises(ValueError):
             audit_sources({'Package.swift': '.package(url: "https://example.invalid", from: "1.0.0")'})
 
 class PreviewBootstrapTests(unittest.TestCase):
     def bootstrap(self):
-        names = ['Sources/DesktopBlurPreview/main.swift', 'Sources/DesktopBlurPreview/RuntimeConfinement.swift',
-                 'Sources/IntegrationCore/PreviewPolicy.swift']
+        names = list(APPROVED_BOOTSTRAP)
         return {name: (ROOT / 'Experiments/DesktopIntegration' / name).read_text() for name in names}
 
     def test_reviewed_bootstrap_passes(self):

@@ -30,7 +30,7 @@ public enum FrameCompositor {
             }
             let tint = CIColor(red: channels[0],green: channels[1],blue: channels[2],alpha: 1)
             let radius = min(64,max(18,Double(source.width)/80))
-            guard let blurred = GaussianRenderer.render(crop,radius: radius,tint: tint,tintOpacity: settings.tint) else { return nil }
+            guard let blurred = GaussianRenderer.render(crop,radius: radius,tint: tint,tintOpacity: settings.tint,context:context) else { return nil }
             let patch = CIImage(cgImage: blurred).transformed(by: CGAffineTransform(translationX: bounds.minX,y: bounds.minY))
             output = patch.composited(over: output)
         }
