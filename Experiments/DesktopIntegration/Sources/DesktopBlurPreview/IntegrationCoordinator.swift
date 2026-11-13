@@ -18,6 +18,7 @@ final class IntegrationCoordinator {
     private var pending: CapturedWindowFrame?
     private var displayed: CapturedWindowFrame?
     private var displayedPlan: RegionPlan?
+    private var conversationAvailable = false
     private var blurred: CGImage?
     private var busy = false
     private var activity: UInt64 = 0
@@ -37,7 +38,6 @@ final class IntegrationCoordinator {
         capture.onFrame = { [weak self] frame in
             guard let self = self else { return }
             self.latest = frame
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == frame.binding.processID else { return }
             self.pending = frame; self.pump()
         }
         capture.onIdle = { [weak self] now in
@@ -67,15 +67,15 @@ final class IntegrationCoordinator {
     private func pump() {
         guard !busy,settings.needsCapture,capture.isCapturing,let input = pending else { return }
         pending = nil
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == input.binding.processID else { return }
         busy = true
         let revision = gate.revision, options = settings
         worker.async { [weak self] in
-            let result: (CGImage,RegionPlan)? = autoreleasepool {
-                guard let detection = try? NativeLayoutDetector.detect(input.image) else { return nil }
+            let result: (CGImage,RegionPlan,Bool)? = autoreleasepool {
+                guard let detection = try? NativeLayoutDetector.detect(input.image),
+                      detection.regions.contains(where: { options.isEnabled($0.category) }) else { return nil }
                 let plan = RegionPlan(.experimental,regions: detection.regions)
                 guard let rendered = FrameCompositor.render(input.image,plan: plan,settings: options) else { return nil }
-                return (rendered,plan)
+                return (rendered,plan,detection.conversationAvailable)
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
@@ -89,17 +89,18 @@ final class IntegrationCoordinator {
                 let now = ProcessInfo.processInfo.systemUptime
                 guard let result = result else {
                     self.withdraw(); self.displayed = nil; self.displayedPlan = nil; self.blurred = nil
-                    self.onStatus?("Layout not recognized. No blur is active. Open a normal chat with Search and an empty message field visible.")
+                    self.onStatus?("Selected blur categories could not be located. No rendering is active; keep a supported chat list visible.")
                     return
                 }
-                guard self.gate.accept(revision: revision,frame: bound.binding,
+                guard self.gate.prepare(revision: revision,frame: bound.binding,
                     currentWindow: self.capture.validatedWindowFrame(for: bound.binding),
-                    frontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier == bound.binding.processID,now: now) else {
+                    now: now) else {
                     self.withdraw(); self.onStatus?("Frame delayed or window changed. No current rendering; coverage is unverified."); return
                 }
                 self.displayed = bound; self.displayedPlan = result.1; self.blurred = result.0; self.renderedReveal = nil
-                self.present(result.0,for: bound.binding)
-                self.onStatus?("Experimental rendering · \(result.1.regions.count) detected regions. Coverage is unverified; use a harmless test chat.")
+                self.conversationAvailable = result.2
+                if self.present(result.0,for: bound.binding) { self.reportRendering() }
+                else { self.onStatus?("Image prepared locally. Return to the selected WhatsApp window to see experimental rendering.") }
             }
         }
     }
@@ -109,15 +110,17 @@ final class IntegrationCoordinator {
         if !foreground { visibilityLost(); wasFrontmost = false; return }
         if !wasFrontmost {
             wasFrontmost = true; hover = ExternalHover(); activity &+= 1
-            hover.newFrame(sequence: activity,now: ProcessInfo.processInfo.systemUptime); pending = latest; pump()
+            hover.newFrame(sequence: activity,now: ProcessInfo.processInfo.systemUptime)
+            if displayed?.binding.sequence != latest.binding.sequence { pending = latest; pump() }
         }
         guard let current = displayed, let plan = displayedPlan else { withdraw(); return }
         guard visible(current.binding) else { visibilityLost(); return }
         hover.visibilityChanged(true,now: ProcessInfo.processInfo.systemUptime)
-        if overlay?.isVisible != true, let blurred = blurred { present(blurred,for: current.binding) }
+        if overlay?.isVisible != true,let blurred = blurred, present(blurred,for: current.binding) { reportRendering() }
         let now = ProcessInfo.processInfo.systemUptime
         guard latest.binding.sequence == current.binding.sequence,now-latest.binding.capturedAt <= 1 else {
-            hover.invalidate(); restoreBlur(); return
+            hover.invalidate(); restoreBlur()
+            onStatus?("Waiting for a new window image. Last processed image shown; hover paused. Coverage unverified."); return
         }
         let point = NSEvent.mouseLocation
         guard let primary = NSScreen.screens.first else { return }
@@ -171,8 +174,12 @@ final class IntegrationCoordinator {
         }
         return true
     }
-    private func present(_ image: CGImage,for binding: FrameBinding) {
-        guard visible(binding),let primary = NSScreen.screens.first else { visibilityLost(); return }
+    private func reportRendering() {
+        let missing = settings.conversationMessages && !conversationAvailable ? " Conversation detection unavailable in this view." : ""
+        onStatus?("Experimental rendering. Coverage unverified." + missing)
+    }
+    @discardableResult private func present(_ image: CGImage,for binding: FrameBinding) -> Bool {
+        guard visible(binding),let primary = NSScreen.screens.first else { visibilityLost(); return false }
         if overlay == nil {
             let window = NSWindow(contentRect: .zero,styleMask: .borderless,backing: .buffered,defer: false)
             window.isReleasedWhenClosed = false; window.ignoresMouseEvents = true
@@ -186,7 +193,7 @@ final class IntegrationCoordinator {
         let rect = binding.windowFrame
         let frame = CGRect(x: rect.minX,y: primary.frame.maxY-rect.maxY,width: rect.width,height: rect.height)
         imageView?.image = NSImage(cgImage: image,size: frame.size)
-        overlay?.setFrame(frame,display: false); overlay?.orderFrontRegardless()
+        overlay?.setFrame(frame,display: false); overlay?.orderFrontRegardless(); return true
     }
     private func withdraw() { overlay?.orderOut(nil); imageView?.image = nil }
     deinit { timer?.invalidate() }

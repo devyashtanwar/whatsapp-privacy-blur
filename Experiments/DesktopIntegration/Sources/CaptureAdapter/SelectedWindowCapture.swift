@@ -18,6 +18,7 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
     private let session = CaptureSession(continuous: true)
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
     private var sequence: UInt64 = 0
+    private var lastSample = "no callback received"
     private var selectedSize: CGSize?
     private let identity = ProcessIdentityProvider()
     private var stream: SCStream?
@@ -51,7 +52,7 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
         precondition(Thread.isMainThread)
         guard canChoose,
               let token = session.request(settings: settings, now: ProcessInfo.processInfo.systemUptime) else { return }
-        activeToken = token; pendingPicker = true
+        activeToken = token; pendingPicker = true; lastSample = "no callback received"
         let observer = PickerRequestObserver(owner: self, token: token)
         pickerObserver = observer; picker.add(observer)
         var configuration = SCContentSharingPickerConfiguration()
@@ -171,9 +172,15 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
                 return
             }
             self.session.tick(now: ProcessInfo.processInfo.systemUptime)
-            if !self.session.wantsFrames || self.original.map({ !ProcessIdentityProvider.stillCurrent($0) }) != false {
-                self.stop(message: "Window stream is no longer current. Rendering stopped; WhatsApp is visible.")
+            if !self.session.wantsFrames {
+                let detail = self.session.failure == .initialFrameTimeout
+                    ? "No usable initial image within 15 seconds (\(self.lastSample))."
+                    : "Capture validation failed: \(self.session.failure?.rawValue ?? "inactive session")."
+                self.stop(message: detail + " Access stopped; no blur is active.")
+            } else if self.original.map({ !ProcessIdentityProvider.stillCurrent($0) }) != false {
+                self.stop(message: "Selected WhatsApp process changed. Access stopped; no blur is active.")
             }
+
         }
         watchdog = timer; RunLoop.main.add(timer, forMode: .common)
     }
@@ -185,18 +192,25 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
     }
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         precondition(Thread.isMainThread)
-        guard stream === self.stream, session.wantsFrames, type == .screen,
-              CMSampleBufferIsValid(sampleBuffer),
-              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-              let raw = attachments.first?[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { return }
-        guard status == .complete || status == .idle else { return }
+        guard stream === self.stream,session.wantsFrames,type == .screen else { return }
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer,createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let raw = attachments.first?[.status] as? Int,let status = SCFrameStatus(rawValue: raw) else {
+            lastSample = "callback missing frame status"; return
+        }
+        let event = FrameSamplePolicy.classify(status,sampleValid: CMSampleBufferIsValid(sampleBuffer),
+            dataReady: CMSampleBufferDataIsReady(sampleBuffer),hasImage: CMSampleBufferGetImageBuffer(sampleBuffer) != nil)
+        lastSample = "status \(raw), \(event.rawValue)"
+        if event == .ignored { return }
+        if event == .unavailable {
+            stop(message: "Selected window updates suspended or unavailable (status \(raw)). Access stopped; no blur is active."); return
+        }
         let now = ProcessInfo.processInfo.systemUptime
         identity.invalidate()
         let trusted = original.map { ProcessIdentityProvider.stillCurrent($0) && identity.trustedPIDs([$0]).contains($0.processIdentifier) } ?? false
         guard let target = session.target, trusted, let rect = windowFrame(target.windowID,pid: target.pid) else {
             stop(message: "Selected WhatsApp identity/window changed. Rendering stopped."); return
         }
-        if status == .idle {
+        if event == .unchanged {
             if !session.observeIdle(token: activeToken,now: now,targetStillTrusted: true) { stop(message: "Window stream expired. No blur is active.") }
             else { onIdle?(now) }
             return

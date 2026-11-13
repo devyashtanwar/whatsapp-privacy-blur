@@ -66,5 +66,33 @@ if let native = native {
 }
 check(NativeLayoutDetector.plan(width: 900,height: 700,divider: nil,anchors: testAnchors,text: testText,rectangles: []) == nil,"ambiguous divider rejected")
 check(NativeLayoutDetector.plan(width: 900,height: 700,divider: 360,anchors: [],text: testText,rectangles: []) == nil,"no guessed layout without anchors")
+let archived = [UIAnchor(kind: .archived,bounds: CGRect(x: 280,y: 640,width: 100,height: 24))]
+let archiveText = [CGRect(x: 250,y: 560,width: 150,height: 20),CGRect(x: 250,y: 530,width: 170,height: 18),CGRect(x: 250,y: 80,width: 150,height: 20),CGRect(x: 250,y: 50,width: 170,height: 18)]
+let archivePlan = NativeLayoutDetector.plan(width: 900,height: 700,divider: 450,anchors: archived,text: archiveText,rectangles: [],sidebarLeft: 180)
+check(archivePlan != nil,"Archived sidebar works without Search or conversation composer")
+if let plan = archivePlan {
+    check(plan.regions.filter { $0.category == .sidebarPreview }.count == 2,"both archived row previews detected including bottom row")
+    check(!plan.regions.contains { $0.category == .conversationMessage },"missing conversation anchor cannot invent body masks")
+}
+let sidebarOnly = NativeLayoutDetector.plan(width: 900,height: 700,divider: 360,anchors: [testAnchors[0]],text: testText,rectangles: [])
+check(sidebarOnly?.regions.contains { $0.category == .sidebarPreview } == true,"ordinary sidebar independent of open conversation")
+let archiveFixture = NSImage(size: NSSize(width: 900,height: 700),flipped: false) { rect in
+    NSColor(calibratedWhite: 0.04,alpha: 1).setFill();rect.fill()
+    NSColor(calibratedWhite: 0.18,alpha: 1).setFill();NSRect(x: 180,y: 0,width: 270,height: 700).fill()
+    NSColor(calibratedWhite: 0.10,alpha: 1).setFill();NSRect(x: 0,y: 0,width: 180,height: 700).fill()
+    let heading: [NSAttributedString.Key:Any] = [.font:NSFont.systemFont(ofSize: 24),.foregroundColor:NSColor.white]
+    let name: [NSAttributedString.Key:Any] = [.font:NSFont.systemFont(ofSize: 20),.foregroundColor:NSColor.white]
+    let preview: [NSAttributedString.Key:Any] = [.font:NSFont.systemFont(ofSize: 18),.foregroundColor:NSColor.lightGray]
+    ("Archived" as NSString).draw(at:NSPoint(x:280,y:640),withAttributes:heading)
+    ("Test Alpha" as NSString).draw(at:NSPoint(x:250,y:560),withAttributes:name)
+    ("Test preview A" as NSString).draw(at:NSPoint(x:250,y:530),withAttributes:preview)
+    ("Test Beta" as NSString).draw(at:NSPoint(x:250,y:80),withAttributes:name)
+    ("Test preview B" as NSString).draw(at:NSPoint(x:250,y:50),withAttributes:preview)
+    return true
+}
+if let bitmap = archiveFixture.cgImage(forProposedRect:nil,context:nil,hints:nil) {
+    let result = try? NativeLayoutDetector.detect(bitmap)
+    check(result?.regions.contains { $0.category == .sidebarPreview } == true,"generated three-pane Archived image passes actual OCR and pixel-divider pipeline")
+} else { check(false,"generated Archived image exists") }
 print("\(count) geometry probe assertions, \(failures) failures")
 if failures > 0 { exit(1) }

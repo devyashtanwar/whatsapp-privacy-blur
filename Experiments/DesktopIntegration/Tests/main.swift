@@ -261,5 +261,21 @@ check(!TargetBinding.isCurrent(binding,selection: selectionBinding,token: bindin
 check(!TargetBinding.isCurrent(binding,selection: nil,token: binding.session,currentGeneration: binding.processGeneration,processStillCurrent: true),"stopped selection cannot present cached pixels")
 check(!TargetBinding.isCurrent(binding,selection: selectionBinding,token: binding.session,currentGeneration: binding.processGeneration+1,processStillCurrent: true),"generation mismatch independently rejects publication")
 check(!TargetBinding.isCurrent(binding,selection: selectionBinding,token: binding.session,currentGeneration: binding.processGeneration,processStillCurrent: false),"lost process continuity independently rejects publication")
+let quiet = CaptureSession(continuous: true)
+let qt = quiet.request(settings: BlurSettings(),now: 600)!
+_ = quiet.accept(selectionBinding,token: qt,now: 600)
+_ = quiet.consumeFrame(token: qt,capturedAt: 600.1,now: 600.2,width: 900,height: 700,targetStillTrusted: true)
+quiet.tick(now: 630)
+check(quiet.wantsFrames,"unchanged selected window is not declared disconnected after three seconds")
+check(quiet.consumeFrame(token: qt,capturedAt: 630.1,now: 630.2,width: 900,height: 700,targetStillTrusted: true),"fresh update after long static interval remains accepted")
+let waiting = CaptureSession(continuous: true)
+let wt = waiting.request(settings: BlurSettings(),now: 700)!
+_ = waiting.accept(selectionBinding,token: wt,now: 700)
+_ = waiting.observeIdle(token: wt,now: 714,targetStillTrusted: true)
+waiting.tick(now: 716)
+check(!waiting.wantsFrames,"idle without an initial image cannot extend initial-frame deadline")
+let preparing = PublicationGate()
+check(preparing.prepare(revision: preparing.revision,frame: binding,currentWindow: binding.windowFrame,now: 100.1),"selected image can be prepared while picker/settings has focus")
+check(!preparing.prepare(revision: preparing.revision,frame: binding,currentWindow: binding.windowFrame,now: 100.2),"duplicate preparation rejected")
 print("\(count) integration assertions, \(failures) failures")
 if failures > 0 { exit(1) }

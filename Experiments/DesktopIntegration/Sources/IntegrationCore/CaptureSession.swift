@@ -1,4 +1,5 @@
 import Foundation
+public enum SessionFailure: String { case initialFrameTimeout, invalidFrame, clockChanged, targetChanged }
 public enum SessionState: Equatable { case idle, selecting, awaitingFrames, capturing, unsupported, paused, failed }
 public struct SelectionDescriptor {
     public var windowID: UInt32
@@ -19,6 +20,7 @@ public final class CaptureSession {
     public private(set) var state: SessionState = .idle
     public private(set) var token: UInt64 = 0
     public private(set) var target: SelectionDescriptor?
+    public private(set) var failure: SessionFailure?
     private var lastTime: TimeInterval = 0
     private var deadline: TimeInterval = 0
     public var wantsFrames: Bool { (state == .awaitingFrames || state == .capturing) && target != nil }
@@ -40,25 +42,28 @@ public final class CaptureSession {
     }
     public func consumeFrame(token: UInt64, capturedAt: TimeInterval, now: TimeInterval, width: Int, height: Int, targetStillTrusted: Bool) -> Bool {
         guard token == self.token, wantsFrames else { return false }
-        guard advance(now), now <= deadline, capturedAt.isFinite, capturedAt >= 0,
+        guard advance(now), (state == .capturing || now <= deadline), capturedAt.isFinite, capturedAt >= 0,
               capturedAt <= now, now - capturedAt <= 0.5, targetStillTrusted,
               width > 0, width <= 4096, height > 0, height <= 4096 else { fail(); return false }
-        if continuous { state = .capturing; deadline = now + 3 }
+        if continuous { state = .capturing }
         else { stop(); state = .unsupported } // Access-only checkpoint remains available to tests.
         return true
     }
     public func observeIdle(token: UInt64, now: TimeInterval, targetStillTrusted: Bool) -> Bool {
-        guard token == self.token, continuous, wantsFrames, advance(now),now <= deadline,targetStillTrusted else { return false }
-        deadline = now + 3; return true
+        guard token == self.token,continuous,wantsFrames else { return false }
+        guard advance(now),targetStillTrusted else { fail(); return false }
+        guard state == .capturing || now <= deadline else { fail(.initialFrameTimeout); return false }
+        return true
     }
     public func tick(now: TimeInterval) {
         guard wantsFrames else { return }
-        guard advance(now), now <= deadline else { fail(); return }
+        guard advance(now) else { fail(.clockChanged); return }
+        if state == .awaitingFrames && now > deadline { fail(.initialFrameTimeout) }
     }
     public func stop(paused: Bool = false) {
-        token &+= 1; target = nil; deadline = 0; state = paused ? .paused : .idle
+        token &+= 1; target = nil; deadline = 0; failure = nil; state = paused ? .paused : .idle
     }
-    private func fail() { stop(); state = .failed }
+    private func fail(_ reason: SessionFailure = .invalidFrame) { stop(); state = .failed; failure = reason }
     private func advance(_ now: TimeInterval) -> Bool {
         guard now.isFinite, now >= lastTime else { return false }
         lastTime = now; return true
