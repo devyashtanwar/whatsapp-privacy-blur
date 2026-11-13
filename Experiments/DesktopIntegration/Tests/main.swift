@@ -77,24 +77,24 @@ check(!backward.wantsFrames, "backwards time invalidates capture")
 let (paused, _) = ready(); paused.stop(paused: true)
 check(paused.state == .paused && !paused.wantsFrames && paused.target == nil, "pause clears selection")
 // A weaker runtime gate must not permit policy/grant changes or raw launch.
-let policy: [String: Any] = ["schemaVersion": 1, "bundleIdentifier": "devyashtanwar.whatsapp-blur-preview",
-    "entitlements": ["com.apple.security.app-sandbox": true], "forbiddenCapabilities": ["network", "microphone", "camera", "location", "personal-files", "contacts", "calendar", "photos", "bluetooth", "usb", "accessibility", "keyboard", "clipboard", "secret-storage", "external-url-opening", "shell-execution", "persistent-settings"],
-    "allowedResources": ["capability-policy.json", "source-manifest.json"], "captureScope": "explicit-picker-single-authenticated-whatsapp-window"]
+let policy: [String: Any] = ["schemaVersion": 2, "bundleIdentifier": "devyashtanwar.whatsapp-blur-auto-beta",
+    "entitlements": ["com.apple.security.app-sandbox": true], "forbiddenCapabilities": ["network", "microphone", "camera", "location", "personal-files", "contacts", "calendar", "photos", "bluetooth", "usb", "accessibility", "keyboard", "clipboard", "secret-storage", "external-url-opening", "shell-execution"],
+    "allowedResources": ["capability-policy.json", "source-manifest.json"], "captureScope": "automatic-independent-authenticated-whatsapp-windows", "preferenceScope":"private-container-non-content-blur-preferences"]
 let policyBytes = try! JSONSerialization.data(withJSONObject: policy)
-func allowed(_ bundle: String? = "devyashtanwar.whatsapp-blur-preview", _ valid: Bool = true, _ hardened: Bool = true,
+func allowed(_ bundle: String? = "devyashtanwar.whatsapp-blur-auto-beta", _ valid: Bool = true, _ hardened: Bool = true,
              _ grants: [String: Any] = ["com.apple.security.app-sandbox": true], _ bytes: Data? = policyBytes) -> Bool {
     PreviewPolicy.allows(bundleID: bundle, signatureValid: valid, hardened: hardened, entitlements: grants, data: bytes)
 }
 check(allowed(), "exact signed preview capability accepted")
 check(!allowed(nil) && !allowed("devyashtanwar.whatsapp-privacy-cover") && !allowed("devyashtanwar.selective-blur-lab"), "wrong/raw bundle rejected")
-check(!allowed(nil, false) && !allowed("devyashtanwar.whatsapp-blur-preview", true, false), "signature/runtime mandatory")
+check(!allowed(nil, false) && !allowed("devyashtanwar.whatsapp-blur-auto-beta", true, false), "signature/runtime mandatory")
 for key in ["com.apple.security.network.client", "com.apple.security.device.audio-input", "com.apple.security.accessibility", "com.apple.security.files.user-selected.read-only"] {
-    check(!allowed("devyashtanwar.whatsapp-blur-preview", true, true, ["com.apple.security.app-sandbox": true, key: true]), "extra entitlement rejected \(key)")
+    check(!allowed("devyashtanwar.whatsapp-blur-auto-beta", true, true, ["com.apple.security.app-sandbox": true, key: true]), "extra entitlement rejected \(key)")
 }
-check(!allowed("devyashtanwar.whatsapp-blur-preview", true, true, ["com.apple.security.app-sandbox": 1]), "integer sandbox value rejected")
+check(!allowed("devyashtanwar.whatsapp-blur-auto-beta", true, true, ["com.apple.security.app-sandbox": 1]), "integer sandbox value rejected")
 var changedPolicy = policy; changedPolicy["captureScope"] = "display"
-check(!allowed("devyashtanwar.whatsapp-blur-preview", true, true, ["com.apple.security.app-sandbox": true], try! JSONSerialization.data(withJSONObject: changedPolicy)), "widened capture policy rejected")
-check(!allowed("devyashtanwar.whatsapp-blur-preview", true, true, ["com.apple.security.app-sandbox": true], nil), "missing policy rejected")
+check(!allowed("devyashtanwar.whatsapp-blur-auto-beta", true, true, ["com.apple.security.app-sandbox": true], try! JSONSerialization.data(withJSONObject: changedPolicy)), "widened capture policy rejected")
+check(!allowed("devyashtanwar.whatsapp-blur-auto-beta", true, true, ["com.apple.security.app-sandbox": true], nil), "missing policy rejected")
 check(PickerScope.isSingleWindow(windowStyle: true, windowIDs: [42], ownerPIDs: [123], displayCount: 0, applicationPIDs: []), "picker single window allowed")
 check(PickerScope.isSingleWindow(windowStyle: true, windowIDs: [42], ownerPIDs: [123], displayCount: 0, applicationPIDs: [123]), "matching window owner metadata allowed")
 check(!PickerScope.isSingleWindow(windowStyle: false, windowIDs: [42], ownerPIDs: [123], displayCount: 0, applicationPIDs: []), "app/display style rejected")
@@ -277,5 +277,97 @@ check(!waiting.wantsFrames,"idle without an initial image cannot extend initial-
 let preparing = PublicationGate()
 check(preparing.prepare(revision: preparing.revision,frame: binding,currentWindow: binding.windowFrame,now: 100.1),"selected image can be prepared while picker/settings has focus")
 check(!preparing.prepare(revision: preparing.revision,frame: binding,currentWindow: binding.windowFrame,now: 100.2),"duplicate preparation rejected")
+let unanswered = CaptureSession(continuous:true)
+_ = unanswered.request(settings:BlurSettings(),now:800)
+unanswered.tick(now:831)
+check(unanswered.state == .failed,"selection without callback has a bounded deadline")
+let targetRect = CGRect(x:0,y:0,width:900,height:700)
+check(VisibleRegionPolicy.exposed(target:targetRect,occluders:[]) == [targetRect],"unobscured background target has exposed regions")
+let cover = CGRect(x:450,y:0,width:450,height:700)
+let pieces = VisibleRegionPolicy.exposed(target:targetRect,occluders:[cover])
+check(pieces == [CGRect(x:0,y:0,width:450,height:700)],"settings over body does not suppress exposed sidebar")
+check(VisibleRegionPolicy.exposed(target:targetRect,occluders:[targetRect]).isEmpty,"known opaque full occlusion has no exposed region")
+let cuts = [CGRect(x:100,y:100,width:300,height:300),CGRect(x:200,y:200,width:600,height:450)]
+let exposed = VisibleRegionPolicy.exposed(target:targetRect,occluders:cuts)
+let points = stride(from:5,through:895,by:20).flatMap { x in stride(from:5,through:695,by:20).map { y in CGPoint(x:x,y:y) } }
+check(points.allSatisfy { p in exposed.contains { $0.contains(p) } == !cuts.contains { $0.contains(p) } },"visible mask matches opaque geometry")
+check(NativeWindowOrderPolicy.canShow(overlay:20,aboveTarget:[99,30,20]),"relative overlay below all other above-target windows accepted")
+check(!NativeWindowOrderPolicy.canShow(overlay:20,aboveTarget:[20,99,30]),"global-topmost overlay above other apps rejected")
+check(!NativeWindowOrderPolicy.canShow(overlay:20,aboveTarget:[99,30]),"unconfirmed relative order cannot display pixels")
+check(!NativeWindowOrderPolicy.canShow(overlay:20,aboveTarget:[20,20]),"duplicate ordering evidence rejected")
+// Preferences accept only the explicitly reviewed non-content schema.
+let savedPreferences = AutoPreferences(automaticEnabled:true,settings:revealSettings)
+let preferencesData = try! savedPreferences.encoded()
+let restoredPreferences = try? AutoPreferences.decode(preferencesData)
+check(restoredPreferences?.automaticEnabled == true,"enabled intent survives serialization")
+check(restoredPreferences?.settings.tint == revealSettings.tint,"tint survives serialization")
+check((try? AutoPreferences.decode(try! AutoPreferences().encoded()))?.automaticEnabled == false,"paused is default and survives restart")
+for invalid in ["{}","{\"schemaVersion\":2}","{\"schemaVersion\":1,\"windowID\":1}","{\"schemaVersion\":1,\"automaticEnabled\":true,\"settings\":{\"tint\":0.1}}"] {
+    check((try? AutoPreferences.decode(Data(invalid.utf8))) == nil,"unknown/corrupt/noncontent schema rejected")
+}
+if let validJSON = try? JSONSerialization.jsonObject(with:preferencesData) as? [String:Any] {
+    var extra = validJSON;extra["title"] = "forbidden"
+    check((try? AutoPreferences.decode(try! JSONSerialization.data(withJSONObject:extra))) == nil,"extra content key rejected")
+    var invalid = validJSON;invalid["automaticEnabled"] = 1
+    check((try? AutoPreferences.decode(try! JSONSerialization.data(withJSONObject:invalid))) == nil,"numeric boolean rejected")
+    var values = validJSON["settings"] as! [String:Any];values["tint"] = 1
+    invalid = validJSON;invalid["settings"] = values
+    check((try? AutoPreferences.decode(try! JSONSerialization.data(withJSONObject:invalid))) == nil,"out of range persisted tint rejected")
+}
+let attach = AutomaticAttachment()
+let a = WindowCandidate(target:CaptureTarget(windowID:10,pid:100,generation:1),frame:CGRect(x:0,y:0,width:900,height:700),width:1800,height:1400)
+let b = WindowCandidate(target:CaptureTarget(windowID:11,pid:100,generation:1),frame:a.frame,width:1800,height:1400)
+let c = WindowCandidate(target:CaptureTarget(windowID:12,pid:100,generation:1),frame:a.frame,width:1800,height:1400)
+func reconcile(_ enabled:Bool = true,_ permission:Bool = true,_ awake:Bool = true,_ targets:[WindowCandidate],_ now:Double = 100) -> AttachmentChanges {
+    attach.reconcile(enabled:enabled,permission:permission,awake:awake,targets:targets,now:now)
+}
+func reconcile(_ targets:[WindowCandidate],_ now:Double = 100) -> AttachmentChanges { reconcile(true,true,true,targets,now) }
+check(reconcile(false,true,true,[a]).start.isEmpty,"saved Pause never starts existing WhatsApp")
+check(reconcile(true,false,true,[a]).start.isEmpty,"permission required before any attachment")
+check(reconcile([]).start.isEmpty,"blur first waits without content discovery work")
+check(reconcile([a]).start == [a],"WhatsApp launch or delayed window attaches")
+check(reconcile([a]).start.isEmpty,"same target does not start duplicate streams")
+let two = reconcile([a,b,c]);check(two.start == [b] && two.partial,"two stream cap reports remaining window as partial")
+check(reconcile(false,true,true,[a,b]).stop.count == 2,"Pause invalidates both target contexts")
+check(reconcile([a]).start == [a],"Resume starts a fresh context")
+check(reconcile(true,true,false,[a]).stop == [a.target],"session lock retires all contexts")
+check(reconcile([a]).start == [a],"wake reattaches under existing permission")
+check(reconcile(true,false,true,[a]).stop == [a.target],"permission loss stops active target")
+_ = reconcile([a]);check(reconcile([]).stop == [a.target],"WhatsApp exit retires context")
+let reused = WindowCandidate(target:CaptureTarget(windowID:10,pid:100,generation:2),frame:a.frame,width:1800,height:1400)
+_ = reconcile([a]);let changed = reconcile([reused]);check(changed.stop == [a.target] && changed.start == [reused],"PID/window reuse requires fresh process generation")
+attach.failed(reused.target,permanent:true,now:100)
+check(reconcile([reused],101).start.isEmpty,"security failure does not automatically retry")
+attach.resetFailures();check(reconcile([reused],102).start == [reused],"explicit Resume can retry fresh authentication")
+attach.failed(reused.target,permanent:false,now:103)
+check(reconcile([reused],103.1).start.isEmpty,"transient retry delay respected")
+check(reconcile([reused],103.3).start == [reused],"bounded first retry")
+for (time,delay) in [(104.0,0.5),(105.0,1.0)] {
+    attach.failed(reused.target,permanent:false,now:time)
+    check(reconcile([reused],time+delay-0.01).start.isEmpty,"retry backoff respected")
+    check(reconcile([reused],time+delay+0.01).start == [reused],"bounded subsequent retry")
+}
+attach.failed(reused.target,permanent:false,now:107)
+check(reconcile([reused],200).start.isEmpty,"repeated stream failure exhausts retries")
+let budget = AutomaticAttachment()
+let huge = WindowCandidate(target:a.target,frame:a.frame,width:4096,height:4096)
+check(budget.reconcile(enabled:true,permission:true,awake:true,targets:[huge],now:1).partial,"aggregate full-buffer budget rejects giant context")
+var permissionGate = PermissionRequestGate()
+check(!permissionGate.shouldRequest(alreadyGranted:false,userAction:false),"launch/retries never prompt")
+check(permissionGate.shouldRequest(alreadyGranted:false,userAction:true),"explicit first setup may request")
+check(!permissionGate.shouldRequest(alreadyGranted:false,userAction:true),"denial does not repeat prompt")
+check(!permissionGate.shouldRequest(alreadyGranted:true,userAction:true),"granted permission never re-prompts")
+check(!permissionGate.shouldRequest(alreadyGranted:false,userAction:false),"revocation never prompts automatically")
+var availability = RuntimeAvailability(sessionActive:true,screenAwake:true)
+check(availability.canCapture,"active session and awake display permit capture")
+availability.sessionChanged(false);availability.screenChanged(false);availability.screenChanged(true)
+check(!availability.canCapture,"screen wake cannot override inactive session")
+availability.sessionChanged(true);check(availability.canCapture,"session activation recovers after wake")
+availability.screenChanged(false);availability.sessionChanged(false);availability.sessionChanged(true)
+check(!availability.canCapture,"session activation cannot override sleeping display")
+availability.screenChanged(true);check(availability.canCapture,"both independent conditions restore capture")
+check(!DisplayFreshness.allows(binding,latestReceivedSequence:binding.sequence+1,now:binding.capturedAt+0.251),"changing content expires an old full-window image")
+check(DisplayFreshness.allows(binding,latestReceivedSequence:binding.sequence+1,now:binding.capturedAt+0.2),"bounded changing-content image can display")
+check(!DisplayFreshness.allows(binding,latestReceivedSequence:binding.sequence+1,now:.nan),"invalid age cannot preserve frozen image")
 print("\(count) integration assertions, \(failures) failures")
 if failures > 0 { exit(1) }

@@ -1,5 +1,5 @@
 import Foundation
-public enum SessionFailure: String { case initialFrameTimeout, invalidFrame, clockChanged, targetChanged }
+public enum SessionFailure: String { case selectionTimeout, initialFrameTimeout, invalidFrame, clockChanged, targetChanged }
 public enum SessionState: Equatable { case idle, selecting, awaitingFrames, capturing, unsupported, paused, failed }
 public struct SelectionDescriptor {
     public var windowID: UInt32
@@ -29,7 +29,7 @@ public final class CaptureSession {
     public func request(settings: BlurSettings, now: TimeInterval) -> UInt64? {
         stop()
         guard settings.needsCapture, now.isFinite, now >= 0 else { return nil }
-        lastTime = now; state = .selecting
+        lastTime = now; deadline = now+30; state = .selecting
         return token
     }
     public func accept(_ selection: SelectionDescriptor, token: UInt64, now: TimeInterval) -> Bool {
@@ -56,9 +56,12 @@ public final class CaptureSession {
         return true
     }
     public func tick(now: TimeInterval) {
-        guard wantsFrames else { return }
+        guard wantsFrames || state == .selecting else { return }
         guard advance(now) else { fail(.clockChanged); return }
-        if state == .awaitingFrames && now > deadline { fail(.initialFrameTimeout) }
+        if now > deadline {
+            if state == .selecting { fail(.selectionTimeout) }
+            else if state == .awaitingFrames { fail(.initialFrameTimeout) }
+        }
     }
     public func stop(paused: Bool = false) {
         token &+= 1; target = nil; deadline = 0; failure = nil; state = paused ? .paused : .idle

@@ -1,4 +1,4 @@
-"""Build/verify the separate, picker-only access checkpoint. Never launches a GUI."""
+"""Build/verify the explicit automatic beta profile. Never launches a GUI."""
 from contextlib import contextmanager
 from pathlib import Path
 import hashlib
@@ -14,16 +14,18 @@ from install_bundle import install_bundle, build_output_destination
 
 ROOT = Path(__file__).resolve().parents[1]
 PREVIEW = ROOT / 'Experiments/DesktopIntegration'
-BUNDLE_ID = 'devyashtanwar.whatsapp-blur-preview'
-APP_NAME = 'WhatsApp Blur Integration Preview.app'
+BUNDLE_ID = 'devyashtanwar.whatsapp-blur-auto-beta'
+APP_NAME = 'WhatsApp Blur Automatic Beta.app'
+SCREEN_USAGE = 'Locally blur authenticated WhatsApp windows automatically. No audio, saving, telemetry or network access.'
 # Swift manifests are executable code, not a safely parseable dependency-list format.
 # Any graph/source mapping change must be reviewed before updating this pin.
-APPROVED_MANIFEST = 'fdae356548024538a0dfcc0df6df58474f1d261148fef418ceb7df30da554b05'
-REQUIRED_POLICY = dict(schemaVersion=1, bundleIdentifier=BUNDLE_ID,
+APPROVED_MANIFEST = '34ccd98d7e35602d4a2ef906049d2ecad58d65051aa884eb6cfe9fb549b6a83b'
+REQUIRED_POLICY = dict(schemaVersion=2, bundleIdentifier=BUNDLE_ID,
     entitlements={'com.apple.security.app-sandbox': True},
-    forbiddenCapabilities=[v for v in CAPABILITIES if v != 'screen-capture'],
+    forbiddenCapabilities=[v for v in CAPABILITIES if v not in {'screen-capture', 'persistent-settings'}],
     allowedResources=['capability-policy.json', 'source-manifest.json'],
-    captureScope='explicit-picker-single-authenticated-whatsapp-window')
+    captureScope='automatic-independent-authenticated-whatsapp-windows',
+    preferenceScope='private-container-non-content-blur-preferences')
 
 def validate_policy(document):
     if document != REQUIRED_POLICY:
@@ -39,10 +41,18 @@ def audit_sources(sources):
         research_ocr = path == 'Sources/GeometryAnalysis/UIAnchorRecognition.swift'
         if not research_ocr and re.search(r'\b(?:VNRecognizeTextRequest|RecognizeTextRequest)\b', source):
             raise ValueError('OCR is authorized only in the isolated UI-anchor investigation')
-        if path.startswith('Sources/') and not path.startswith('Sources/GeometryAnalysis/') and path != 'Sources/DesktopBlurPreview/IntegrationCoordinator.swift' and re.search(r'\bimport\s+GeometryAnalysis\b', source):
+        if path.startswith('Sources/') and not path.startswith('Sources/GeometryAnalysis/') and path not in {'Sources/DesktopBlurPreview/IntegrationCoordinator.swift', 'Sources/DesktopPipeline/FrameProcessor.swift'} and re.search(r'\bimport\s+GeometryAnalysis\b', source):
             raise ValueError('Geometry analysis is allowed only through the reviewed integration coordinator')
+        if re.search(r'CG(?:Preflight|Request)ScreenCaptureAccess',source) and path != 'Sources/CaptureAdapter/ScreenPermission.swift':
+            raise ValueError('Permission access outside reviewed adapter')
+        if re.search(r'SCShareableContent',source) and path != 'Sources/CaptureAdapter/WhatsAppDiscovery.swift':
+            raise ValueError('Catalog outside reviewed discovery')
+        if re.search(r'SCContentFilter\s*\(',source) and (path != 'Sources/CaptureAdapter/AutomaticWindowCapture.swift' or re.search(r'SCContentFilter\s*\(\s*(?!desktopIndependentWindow\s*:)',source)):
+            raise ValueError('Only authenticated independent-window filters permitted')
+        if re.search(r'\.write\s*\(\s*to:|createFile\s*\(|createDirectory\s*\(|UserDefaults',source) and path != 'Sources/DesktopBlurPreview/PreferenceStore.swift':
+            raise ValueError('Persistence outside reviewed preference store')
         patterns = SOURCE_PATTERNS + [
-            r'AXUIElement|AXIsProcessTrusted|CGWindowListCreateImage|CGDisplayCreateImage|SCShareableContent|SCScreenshotManager|SCRecordingOutput',
+            r'AXUIElement|AXIsProcessTrusted|CGWindowListCreateImage|CGDisplayCreateImage|SCScreenshotManager|SCRecordingOutput',
             r'\b(?:capturesAudio|captureMicrophone)\s*=\s*true',
             r'add(?:Recording|ClipBuffering|VideoEffect)Output']
         if any(re.search(pattern, source) for pattern in patterns):
@@ -54,7 +64,7 @@ def audit_sources(sources):
 
 # Fixed, small security bootstrap; intentional changes require explicit review of these pins.
 # Guardrails catch regression, not a malicious actor who can rewrite the builder itself.
-APPROVED_BOOTSTRAP = {'Sources/DesktopBlurPreview/main.swift': '08104e0e72d2c40bbdd095d983fc3b2de53bab6ffdd1a31d27cdf01195f9f8ae', 'Sources/DesktopBlurPreview/RuntimeConfinement.swift': 'a5c0b38bdedae460eaa758f324f2c1f3aa80c09166d3435da32bf674fbac9f1e', 'Sources/IntegrationCore/PreviewPolicy.swift': '9f4dc1a7d38820bc71aebad5408b6e633400b5eccc7051cc14067bc0599bdd24'}
+APPROVED_BOOTSTRAP = {'Sources/DesktopBlurPreview/main.swift': '08104e0e72d2c40bbdd095d983fc3b2de53bab6ffdd1a31d27cdf01195f9f8ae', 'Sources/DesktopBlurPreview/RuntimeConfinement.swift': 'a5c0b38bdedae460eaa758f324f2c1f3aa80c09166d3435da32bf674fbac9f1e', 'Sources/IntegrationCore/PreviewPolicy.swift': '01946e96d9fcef9f35803c64b73b7f1b25939f518ec8a4f9bbc727ed6cbd49b0', 'Sources/CaptureAdapter/ScreenPermission.swift': '3ac9c739eda81fdedc9cf977b599261b8ce1dc35112a3f62c00178bb21f2ead6', 'Sources/CaptureAdapter/WhatsAppDiscovery.swift': '237b27104faeff5476279de510f03500622c399ee9fdd6279f83f6711d369d23', 'Sources/CaptureAdapter/AutomaticWindowCapture.swift': '04d656c45690baa36dd4d77de6ad89f5dbfb9ef2184df117a07939917f5606ee', 'Sources/DesktopBlurPreview/PreferenceStore.swift': '24898506ce39744555bd0d5143880f45f338c75c11f66e9a621a0448f0a59529'}
 
 def audit_bootstrap(sources):
     for path, expected in APPROVED_BOOTSTRAP.items():
@@ -74,8 +84,11 @@ def snapshot_inputs(repo=ROOT):
         source_map = {}
         entries = []
         inputs = []
-        for name in ['Package.swift', 'Sources', 'Tests', 'AdapterTests', 'GeometryTests', 'RenderTests', 'Security']:
+        for name in ['Package.swift', 'Sources', 'Tests', 'AdapterTests', 'GeometryTests', 'RenderTests', 'IntegrationHarness', 'PreferenceTests', 'Security']:
             inputs.append((preview / name, Path(name)))
+        for name in ['IntegrationCoordinator.swift','AutomaticController.swift','TargetPresentation.swift']:
+            inputs.append((preview / 'Sources/DesktopBlurPreview' / name, Path('IntegrationHarness') / name))
+        inputs.append((preview / 'Sources/DesktopBlurPreview/PreferenceStore.swift', Path('PreferenceTests/PreferenceStore.swift')))
         inputs.extend([(repo / 'Sources/PrivacyCore', Path('Inputs/PrivacyCore')),
                        (repo / 'Sources/HideWhatsApp/ProcessIdentity.swift', Path('Sources/CaptureAdapter/ProcessIdentity.swift')),
                        (repo / 'Experiments/SelectiveBlurLab/Sources/LabViews/GaussianFilter.swift', Path('Sources/NativeRendering/GaussianFilter.swift'))])
@@ -92,12 +105,12 @@ def snapshot_inputs(repo=ROOT):
                 target = snapshot / relative; target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data); target.chmod(0o444)
                 entries.append({'source': str(path.relative_to(repo)), 'compiledPath': str(relative), 'sha256': hashlib.sha256(data).hexdigest()})
-                if relative.suffix == '.swift' and relative.parts[0] not in {'Tests', 'AdapterTests', 'GeometryTests', 'RenderTests'}:
+                if relative.suffix == '.swift' and relative.parts[0] not in {'Tests', 'AdapterTests', 'GeometryTests', 'RenderTests', 'IntegrationHarness', 'PreferenceTests'}:
                     source_map[str(relative)] = data.decode()
         validate_policy(json.loads((snapshot / 'Security/CapabilityPolicy.json').read_text()))
         audit_sources(source_map)
         audit_bootstrap(source_map)
-        manifest = dict(schemaVersion=1, baseRevision=revision(repo), milestone='native-desktop-experimental-local-ocr', inputs=entries)
+        manifest = dict(schemaVersion=1, baseRevision=revision(repo), milestone='automatic-desktop-experimental-local-ocr', inputs=entries)
         yield work, snapshot, manifest
 
 def swift_command(work, snapshot, mode):
@@ -116,12 +129,13 @@ def verify_preview(app):
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     if info.get('CFBundleIdentifier') != BUNDLE_ID or info.get('CFBundleExecutable') != 'DesktopBlurPreview' or info.get('LSMinimumSystemVersion') != '15.2':
         raise ValueError('Incorrect preview identity/OS floor')
-    if any(k.endswith('UsageDescription') or k in {'CFBundleURLTypes', 'CFBundleDocumentTypes', 'NSServices', 'NSExtension'} for k in info):
+    if info.get('NSScreenCaptureUsageDescription') != SCREEN_USAGE: raise ValueError('Missing or changed capture explanation')
+    if any((k.endswith('UsageDescription') and k != 'NSScreenCaptureUsageDescription') or k in {'CFBundleURLTypes', 'CFBundleDocumentTypes', 'NSServices', 'NSExtension'} for k in info):
         raise ValueError('Unexpected permission or handler')
     validate_policy(json.loads((app / 'Contents/Resources/capability-policy.json').read_text()))
     manifest = json.loads((app / 'Contents/Resources/source-manifest.json').read_text())
     entries = manifest.get('inputs')
-    if manifest.get('milestone') != 'native-desktop-experimental-local-ocr' or not isinstance(entries, list) or not entries:
+    if manifest.get('milestone') != 'automatic-desktop-experimental-local-ocr' or not isinstance(entries, list) or not entries:
         raise ValueError('Invalid preview provenance')
     paths = set()
     for entry in entries:
@@ -150,19 +164,21 @@ def verify_preview(app):
     for pattern in SENSITIVE_SYMBOLS:
         pattern = pattern.replace('|SCStream', '') # Only this reviewed capture API is allowed here.
         if re.search(pattern, symbols): raise ValueError('Forbidden preview linked API: ' + pattern)
-    if re.search(r'_OBJC_CLASS_\$_SCShareableContent\b|SCRecordingOutput|SCClipBufferingOutput|CGEventTapCreate', symbols):
+    if re.search(r'SCRecordingOutput|SCClipBufferingOutput|CGEventTapCreate', symbols):
         raise ValueError('Broad content enumeration, recording or input monitoring')
     for line in subprocess.check_output(['otool', '-L', str(binary)], text=True).splitlines()[1:]:
         if not line.strip().startswith(('/System/Library/', '/usr/lib/')): raise ValueError('Non-system preview library')
         # Vision is explicitly authorized for local OCR in this test candidate.
         if any('/' + name + '.framework/' in line for name in ['Network', 'CFNetwork']):
             raise ValueError('Forbidden network framework in capture binary')
-    print('Verified preview identity, sandbox-only grants, runtime, selected-window policy and sealed inputs.')
+    print('Verified automatic beta identity, sandbox-only grants, runtime, exact capture/preferences policy and sealed inputs.')
 
 def run_tests():
     with snapshot_inputs() as (work, snapshot, _):
-        for product in ['IntegrationTests', 'AdapterTests', 'GeometryTests', 'RenderTests']:
-            subprocess.run(swift_command(work, snapshot, 'run') + [product], check=True)
+        # Build one reviewed immutable graph, then run only non-GUI test executables.
+        subprocess.run(swift_command(work, snapshot, 'build'), check=True)
+        for product in ['IntegrationTests', 'AdapterTests', 'GeometryTests', 'RenderTests', 'IntegrationHarness', 'PreferenceTests']:
+            subprocess.run(swift_command(work, snapshot, 'run') + ['--skip-build', product], check=True)
 
 def build():
     output = build_output_destination(ROOT).parent / APP_NAME
@@ -173,8 +189,8 @@ def build():
         app = work / APP_NAME; contents = app / 'Contents'
         (contents / 'MacOS').mkdir(parents=True); (contents / 'Resources').mkdir()
         shutil.copy2(binaries / 'DesktopBlurPreview', contents / 'MacOS/DesktopBlurPreview')
-        info = dict(CFBundleIdentifier=BUNDLE_ID, CFBundleExecutable='DesktopBlurPreview', CFBundleName='WhatsApp Blur Integration Preview',
-                    CFBundlePackageType='APPL', CFBundleVersion='1', LSMinimumSystemVersion='15.2', NSHighResolutionCapable=True)
+        info = dict(CFBundleIdentifier=BUNDLE_ID, CFBundleExecutable='DesktopBlurPreview', CFBundleName='WhatsApp Blur Automatic Beta',
+                    CFBundlePackageType='APPL', CFBundleVersion='1', PrivacyBuildIdentifier=manifest['baseRevision'][:12]+'-'+hashlib.sha256(json.dumps(manifest,sort_keys=True).encode()).hexdigest()[:8], LSMinimumSystemVersion='15.2', NSHighResolutionCapable=True, NSScreenCaptureUsageDescription=SCREEN_USAGE)
         (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
         shutil.copyfile(snapshot / 'Security/CapabilityPolicy.json', contents / 'Resources/capability-policy.json')
         (contents / 'Resources/source-manifest.json').write_text(json.dumps(manifest, indent=2))
