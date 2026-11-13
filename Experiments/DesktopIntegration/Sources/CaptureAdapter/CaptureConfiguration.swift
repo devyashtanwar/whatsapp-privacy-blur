@@ -10,6 +10,9 @@ public enum CaptureConfiguration {
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        configuration.includeChildWindows = false
+        configuration.scalesToFit = false
         configuration.capturesAudio = false
         configuration.captureMicrophone = false
         return configuration

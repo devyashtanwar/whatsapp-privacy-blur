@@ -2,14 +2,23 @@ import AppKit
 import ScreenCaptureKit
 import CoreMedia
 import CoreVideo
+import CoreImage
 import IntegrationCore
 import PrivacyCore
 
-/// The first integration gate accepts one complete selected-window frame for metadata validation.
-/// It reads frame metadata only; never renders, saves or logs the image or window title.
+public struct CapturedWindowFrame {
+    public let image: CGImage
+    public var binding: FrameBinding
+    public init(image: CGImage,binding: FrameBinding) { self.image = image; self.binding = binding }
+}
+/// Picker-scoped continuous frames for the explicitly authorized local test candidate.
+/// No content is saved, logged, or sent outside the process.
 public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private let picker = SCContentSharingPicker.shared
-    private let session = CaptureSession()
+    private let session = CaptureSession(continuous: true)
+    private let imageContext = CIContext(options: [.cacheIntermediates: false])
+    private var sequence: UInt64 = 0
+    private var selectedSize: CGSize?
     private let identity = ProcessIdentityProvider()
     private var stream: SCStream?
     private let lifetime = StreamLifetime()
@@ -21,6 +30,11 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
     private var pendingPicker = false
     private var activeToken: UInt64 = 0
     public var onStatus: ((String, Bool) -> Void)?
+    public var onFrame: ((CapturedWindowFrame) -> Void)?
+    public var onIdle: ((TimeInterval) -> Void)?
+    public var onActivity: (() -> Void)?
+    public var onStopped: (() -> Void)?
+    public var isCapturing: Bool { session.wantsFrames }
 
     public var canChoose: Bool { lifetime.canBegin && stream == nil && !pendingPicker }
 
@@ -46,13 +60,14 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
         picker.defaultConfiguration = configuration
         picker.maximumStreamCount = 1
         picker.isActive = true
-        onStatus?("Choose one WhatsApp window. No blur is active.", true)
+        onStatus?("Choose one WhatsApp window for local experimental rendering.", true)
         picker.present(using: .window)
     }
     public func stop(message: String = "Window access stopped. WhatsApp remains visible.", paused: Bool = false) {
         precondition(Thread.isMainThread)
         session.stop(paused: paused); activeToken = session.token
-        original = nil; pendingPicker = false; stopMessage = message
+        original = nil; selectedSize = nil; pendingPicker = false; stopMessage = message
+        onStopped?()
         picker.isActive = false
         if let observer = pickerObserver { picker.remove(observer); pickerObserver = nil }
         guard let old = stream else {
@@ -125,7 +140,7 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
         guard let configuration = CaptureConfiguration.make(width: Double(width), height: Double(height)) else {
             stop(message: "Window exceeds the preview's supported size. No blur is active."); return
         }
-        original = app
+        original = app; selectedSize = selected.frame.size; sequence = 0
         let next = SCStream(filter: scope, configuration: configuration, delegate: self)
         do { try next.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main) }
         catch { stop(message: "Could not create the window-only test stream. No blur is active."); return }
@@ -134,7 +149,7 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
             stop(message: "Capture lifecycle unavailable. No blur is active."); return
         }
         stream = next
-        onStatus?("Testing selected-window access… WhatsApp is visible and unprotected.", true)
+        onStatus?("Analyzing the selected window locally… Coverage is unverified.", true)
         next.startCapture { [weak self] error in
             DispatchQueue.main.async {
                 guard let self = self, self.stream === next, self.lifetime.token == streamToken else { return }
@@ -157,7 +172,7 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
             }
             self.session.tick(now: ProcessInfo.processInfo.systemUptime)
             if !self.session.wantsFrames || self.original.map({ !ProcessIdentityProvider.stillCurrent($0) }) != false {
-                self.stop(message: "Test ended without a valid current frame. No blur is active.")
+                self.stop(message: "Window stream is no longer current. Rendering stopped; WhatsApp is visible.")
             }
         }
         watchdog = timer; RunLoop.main.add(timer, forMode: .common)
@@ -173,17 +188,54 @@ public final class SelectedWindowCapture: NSObject, SCStreamOutput, SCStreamDele
         guard stream === self.stream, session.wantsFrames, type == .screen,
               CMSampleBufferIsValid(sampleBuffer),
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-              let raw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
-              let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        identity.invalidate()
-        let trusted = original.map { ProcessIdentityProvider.stillCurrent($0) && identity.trustedPIDs([$0]).contains($0.processIdentifier) && session.target.map({ windowOwnedBy($0.windowID, pid: $0.pid) }) == true } ?? false
+              let raw = attachments.first?[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { return }
+        guard status == .complete || status == .idle else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        let accepted = session.consumeFrame(token: activeToken, capturedAt: CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)),
-            now: now, width: CVPixelBufferGetWidth(pixels), height: CVPixelBufferGetHeight(pixels), targetStillTrusted: trusted)
-        // No pixel lock, image conversion, display, save, log, or reference stored.
-        stop(message: accepted
-            ? "Window access test passed; access stopped. Message detection is not implemented — no blur is active."
-            : "Frame validation failed; access stopped. No blur is active.")
+        identity.invalidate()
+        let trusted = original.map { ProcessIdentityProvider.stillCurrent($0) && identity.trustedPIDs([$0]).contains($0.processIdentifier) } ?? false
+        guard let target = session.target, trusted, let rect = windowFrame(target.windowID,pid: target.pid) else {
+            stop(message: "Selected WhatsApp identity/window changed. Rendering stopped."); return
+        }
+        if status == .idle {
+            if !session.observeIdle(token: activeToken,now: now,targetStillTrusted: true) { stop(message: "Window stream expired. No blur is active.") }
+            else { onIdle?(now) }
+            return
+        }
+        onActivity?() // Revoke any sharp reveal before work is queued.
+        guard let pixels = CMSampleBufferGetImageBuffer(sampleBuffer), let selectedSize = selectedSize,
+              abs(rect.width-selectedSize.width) < 1, abs(rect.height-selectedSize.height) < 1 else {
+            stop(message: "Window size changed. Select it again; no blur is active."); return
+        }
+        let width = CVPixelBufferGetWidth(pixels),height = CVPixelBufferGetHeight(pixels)
+        let time = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+        guard session.consumeFrame(token: activeToken,capturedAt: time,now: now,width: width,height: height,targetStillTrusted: true),
+              abs(Double(width)/Double(height)-Double(rect.width)/Double(rect.height)) < 0.01 else {
+            stop(message: "Frame dimensions or freshness could not be verified. No blur is active."); return
+        }
+        let input = CIImage(cvPixelBuffer: pixels)
+        guard let image = imageContext.createCGImage(input,from: input.extent) else {
+            stop(message: "Local frame conversion failed. No blur is active."); return
+        }
+        sequence &+= 1
+        let binding = FrameBinding(session: activeToken,sequence: sequence,windowID: target.windowID,processID: target.pid,
+            processGeneration: target.generation,capturedAt: time,width: width,height: height,
+            scale: Double(width)/Double(rect.width),windowFrame: rect)
+        onFrame?(CapturedWindowFrame(image: image,binding: binding))
+    }
+    /// Revalidate the entire consent/identity binding immediately before external presentation.
+    public func validatedWindowFrame(for binding: FrameBinding) -> CGRect? {
+        guard session.wantsFrames,binding.session == activeToken else { return nil }
+        guard TargetBinding.isCurrent(binding,selection: session.target,token: activeToken,
+                  currentGeneration: original?.launchDate?.timeIntervalSince1970,
+                  processStillCurrent: original.map(ProcessIdentityProvider.stillCurrent) ?? false),
+              let rect = windowFrame(binding.windowID,pid: binding.processID),rect == binding.windowFrame else {
+            stop(message: "Selected window identity or bounds changed. Access stopped; select it again."); return nil
+        }
+        return rect
+    }
+    private func windowFrame(_ windowID: UInt32,pid: Int32) -> CGRect? {
+        let records = CGWindowListCopyWindowInfo(.optionIncludingWindow,windowID) as? [[String: Any]] ?? []
+        return WindowMetadataDecoder.decode(records,ownerPIDs: [pid]).first(where: { $0.id == windowID })?.frame
     }
     private func windowOwnedBy(_ windowID: UInt32, pid: Int32) -> Bool {
         // Query this selected window only; never consume titles or enumerate screen content.

@@ -39,7 +39,7 @@ public struct RegionSnapshot {
         self.frame = frame; self.evidence = evidence; self.supportedCategories = supportedCategories; self.regions = regions; self.controls = controls
     }
 }
-public enum RegionValidationState { case ready, disabled, unsupported, stale, mismatch, invalid }
+public enum RegionValidationState { case ready, experimental, disabled, unsupported, stale, mismatch, invalid }
 public struct RegionPlan {
     public let state: RegionValidationState
     public let regions: [DetectedRegion]

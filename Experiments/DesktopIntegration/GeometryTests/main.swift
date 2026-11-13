@@ -1,5 +1,6 @@
 import AppKit
 import GeometryAnalysis
+import IntegrationCore
 var count = 0
 var failures = 0
 func check(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -52,5 +53,18 @@ if let input = interface.cgImage(forProposedRect: nil, context: nil, hints: nil)
         print("Recognized \(anchors.count) whitelisted UI anchors; no recognized strings emitted.")
     } catch { check(false, "local OCR anchor investigation failed") }
 } else { check(false, "generated UI fixture unavailable") }
+let testAnchors = [UIAnchor(kind: .search,bounds: CGRect(x: 90,y: 630,width: 120,height: 20)),UIAnchor(kind: .composer,bounds: CGRect(x: 420,y: 25,width: 120,height: 20))]
+let testText = [CGRect(x: 100,y: 550,width: 110,height: 20),CGRect(x: 100,y: 520,width: 200,height: 18),CGRect(x: 440,y: 450,width: 240,height: 20)]
+let native = NativeLayoutDetector.plan(width: 900,height: 700,divider: 360,anchors: testAnchors,text: testText,rectangles: [CGRect(x: 450,y: 150,width: 250,height: 160)])
+check(native != nil,"anchored layout yields experimental localized regions")
+if let native = native {
+    check(native.regions.contains { $0.category == .sidebarPreview && $0.bounds.contains(CGPoint(x: 110,y: 530)) },"sidebar preview is localized below row name")
+    check(native.regions.contains { $0.category == .contactName && $0.bounds.contains(CGPoint(x: 110,y: 560)) },"name gets separate category")
+    check(native.regions.contains { $0.category == .avatar },"row-derived avatar category exists")
+    check(native.regions.contains { $0.category == .conversationMessage && $0.bounds.contains(CGPoint(x: 500,y: 200)) },"media rectangle included independently of text")
+    check(native.regions.filter { $0.category == .conversationMessage }.allSatisfy { !$0.bounds.intersects(testAnchors[1].bounds) },"composer excluded")
+}
+check(NativeLayoutDetector.plan(width: 900,height: 700,divider: nil,anchors: testAnchors,text: testText,rectangles: []) == nil,"ambiguous divider rejected")
+check(NativeLayoutDetector.plan(width: 900,height: 700,divider: 360,anchors: [],text: testText,rectangles: []) == nil,"no guessed layout without anchors")
 print("\(count) geometry probe assertions, \(failures) failures")
 if failures > 0 { exit(1) }

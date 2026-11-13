@@ -1,84 +1,95 @@
 import AppKit
 import IntegrationCore
-import CaptureAdapter
 
-// A scoped-access checkpoint. It deliberately has no protected/active-blur state.
+private final class SettingsStack: NSStackView { override var isFlipped: Bool { true } }
+
 final class PreviewApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var settings = BlurSettings()
-    private let capture = SelectedWindowCapture()
+    private let engine = IntegrationCoordinator()
     private var window: NSWindow!
     private var item: NSStatusItem!
     private var switches: [NSButton] = []
-    private var tintSlider: NSSlider!
-    private let tintLabel = NSTextField(labelWithString: "Tint 65%")
-    private let status = NSTextField(wrappingLabelWithString: "No window selected. No blur is active.")
-    private let choose = NSButton(title: "Test WhatsApp window access…", target: nil, action: nil)
-
+    private var hovers: [NSButton] = []
+    private let tintLabel = NSTextField(labelWithString: "Tint · 65%")
+    private let status = NSTextField(wrappingLabelWithString: "Idle · no window selected or captured")
+    private let choose = NSButton(title: "Choose WhatsApp window…", target: nil, action: nil)
     func applicationDidFinishLaunching(_ notification: Notification) {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 490, height: 720),
-                          styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "WhatsApp Blur — Integration Preview"
+        window = NSWindow(contentRect: NSRect(x: 0,y: 0,width: 480,height: 760),styleMask: [.titled,.closable,.miniaturizable],backing: .buffered,defer: false)
+        window.title = "WhatsApp Blur · Desktop Test"
         window.isReleasedWhenClosed = false; window.delegate = self
-        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
+        let stack = SettingsStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 13
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let root = NSView(); root.addSubview(stack); window.contentView = root
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 24)])
-        let heading = NSTextField(labelWithString: "Desktop integration checkpoint")
-        heading.font = .systemFont(ofSize: 21, weight: .semibold); stack.addArrangedSubview(heading)
-        let warning = NSTextField(wrappingLabelWithString: "Message detection and real-window blur are not available yet. This build tests access to one window you select. WhatsApp stays visible and unprotected.")
-        warning.textColor = .secondaryLabelColor; stack.addArrangedSubview(warning)
-        let planned = NSTextField(labelWithString: "Requested blur settings · not applied in this checkpoint")
-        planned.font = .systemFont(ofSize: 12, weight: .semibold); stack.addArrangedSubview(planned)
-        for (index, title) in ["Blur sidebar previews", "Blur conversation messages", "Blur names", "Blur avatars"].enumerated() {
-            let button = NSButton(checkboxWithTitle: title, target: self, action: #selector(changed(_:)))
-            button.tag = index; button.state = index < 2 ? .on : .off; switches.append(button); stack.addArrangedSubview(button)
+        stack.edgeInsets = NSEdgeInsets(top: 20,left: 24,bottom: 24,right: 24)
+        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
+        window.contentView = scroll; scroll.documentView = stack
+        NSLayoutConstraint.activate([stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            stack.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            stack.topAnchor.constraint(equalTo: scroll.contentView.topAnchor)])
+        func label(_ text: String,_ size: CGFloat = 12,_ weight: NSFont.Weight = .regular) {
+            let field = NSTextField(wrappingLabelWithString: text); field.font = .systemFont(ofSize: size,weight: weight)
+            field.preferredMaxLayoutWidth = 428; stack.addArrangedSubview(field)
         }
-        let identity = NSTextField(wrappingLabelWithString: "Name/avatar blur is planned for the sidebar and chat header. Identity stays blurred during message hover when enabled.")
-        identity.font = .systemFont(ofSize: 11); identity.textColor = .secondaryLabelColor; stack.addArrangedSubview(identity)
-        let hover = NSTextField(labelWithString: "Per-message hover reveal: pending real-window validation")
-        hover.textColor = .secondaryLabelColor; hover.font = .systemFont(ofSize: 11); stack.addArrangedSubview(hover)
-        tintSlider = NSSlider(value: 0.65, minValue: 0.4, maxValue: 0.9, target: self, action: #selector(tintChanged(_:)))
-        tintSlider.widthAnchor.constraint(equalToConstant: 310).isActive = true
-        stack.addArrangedSubview(tintLabel); stack.addArrangedSubview(tintSlider)
-        stack.addArrangedSubview(status)
-        status.font = .systemFont(ofSize: 12, weight: .medium)
-        choose.target = self; choose.action = #selector(selectWindow); stack.addArrangedSubview(choose)
-        let stop = NSButton(title: "Stop window access", target: self, action: #selector(stopAccess)); stack.addArrangedSubview(stop)
-        let boundary = NSTextField(wrappingLabelWithString: "Accepts one test frame, checks metadata, then stops. No image is displayed or saved. Capture may include the entire selected window, regardless of planned blur settings. Everything stays local; settings reset on quit.")
-        boundary.font = .systemFont(ofSize: 11); boundary.textColor = .secondaryLabelColor; stack.addArrangedSubview(boundary)
-        capture.onStatus = { [weak self] text, busy in
-            guard let self = self else { return }
-            self.status.stringValue = text; self.choose.isEnabled = !busy && self.settings.needsCapture
+        label("A little privacy. Your familiar WhatsApp.",21,.semibold)
+        label("LOCAL DESKTOP TEST · COVERAGE UNVERIFIED",10,.semibold)
+        label("Choose one native WhatsApp window. This experimental build blurs detected message regions; missed text or media may remain readable. Test with a harmless conversation before relying on it.")
+        label("Messages",14,.semibold)
+        for (index,title) in ["Blur sidebar message previews","Blur conversation messages"].enumerated() {
+            let button = NSButton(checkboxWithTitle: title,target: self,action: #selector(changed(_:)))
+            button.tag = index; button.state = .on; switches.append(button); stack.addArrangedSubview(button)
+            let hover = NSButton(checkboxWithTitle: "Reveal hovered \(index == 0 ? "preview" : "message") · up to 2 seconds",target: self,action: #selector(changed(_:)))
+            hover.font = .systemFont(ofSize: 11); hover.tag = index; hovers.append(hover); stack.addArrangedSubview(hover)
         }
+        label("Identity",14,.semibold)
+        for (index,title) in ["Blur contact and group names","Blur avatars"].enumerated() {
+            let button = NSButton(checkboxWithTitle: title,target: self,action: #selector(changed(_:)))
+            button.tag = index+2; switches.append(button); stack.addArrangedSubview(button)
+        }
+        label("Names and avatars stay blurred during message hover. Detection is experimental, including identity placement.",11)
+        stack.addArrangedSubview(tintLabel)
+        let slider = NSSlider(value: 0.65,minValue: 0.4,maxValue: 0.9,target: self,action: #selector(tintChanged(_:)))
+        slider.widthAnchor.constraint(equalToConstant: 400).isActive = true; slider.isContinuous = false; stack.addArrangedSubview(slider)
+        label("40% — 90% tint, over opaque Gaussian blur. No sharp-source transparency.",11)
+        status.font = .systemFont(ofSize: 12,weight: .medium); status.textColor = .systemOrange
+        status.preferredMaxLayoutWidth = 428; stack.addArrangedSubview(status)
+        choose.target = self; choose.action = #selector(selectWindow); choose.bezelStyle = .rounded; stack.addArrangedSubview(choose)
+        let actions = NSStackView(); actions.orientation = .horizontal; actions.spacing = 12
+        actions.addArrangedSubview(NSButton(title: "Pause / stop access",target: self,action: #selector(stopAccess)))
+        actions.addArrangedSubview(NSButton(title: "Privacy limits…",target: self,action: #selector(privacyLimits)))
+        stack.addArrangedSubview(actions)
+        label("Pixels and on-device OCR stay in memory. No telemetry, network, saving, microphone or Accessibility. Closing this window stops access. Settings reset on quit.",11)
+        engine.capture.onStatus = { [weak self] text,busy in
+            self?.status.stringValue = text; self?.choose.isEnabled = !busy && (self?.settings.needsCapture ?? false)
+        }
+        engine.onStatus = { [weak self] in self?.status.stringValue = $0 }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "exclamationmark.shield", accessibilityDescription: "Integration preview — no blur active")
+        item.button?.image = NSImage(systemSymbolName: "eye.slash",accessibilityDescription: "WhatsApp Blur · experimental test")
         let menu = NSMenu()
-        let open = NSMenuItem(title: "Show integration preview", action: #selector(showWindow), keyEquivalent: ""); open.target = self; menu.addItem(open)
-        let stopItem = NSMenuItem(title: "Stop window access", action: #selector(stopAccess), keyEquivalent: ""); stopItem.target = self; menu.addItem(stopItem)
+        let open = NSMenuItem(title: "WhatsApp Blur · settings",action: #selector(showWindow),keyEquivalent: ""); open.target = self; menu.addItem(open)
+        let stop = NSMenuItem(title: "Pause / stop window access",action: #selector(stopAccess),keyEquivalent: ""); stop.target = self; menu.addItem(stop)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit preview", action: #selector(quit), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
-        item.menu = menu
+        let quit = NSMenuItem(title: "Quit",action: #selector(quit),keyEquivalent: "q"); quit.target = self; menu.addItem(quit); item.menu = menu
         window.center(); showWindow()
     }
     @objc private func changed(_ sender: NSButton) {
-        capture.stop(message: "Settings updated for future blur. No window access or blur is active.")
-        settings.sidebarPreviews = switches[0].state == .on
-        settings.conversationMessages = switches[1].state == .on
-        settings.names = switches[2].state == .on
-        settings.avatars = switches[3].state == .on
-        // Do not reenable selection while an old asynchronous stream is retiring.
-        choose.isEnabled = settings.needsCapture && capture.canChoose
+        settings.sidebarPreviews = switches[0].state == .on; settings.conversationMessages = switches[1].state == .on
+        settings.names = switches[2].state == .on; settings.avatars = switches[3].state == .on
+        settings.sidebarHover = hovers[0].state == .on; settings.conversationHover = hovers[1].state == .on
+        hovers[0].isEnabled = settings.sidebarPreviews; hovers[1].isEnabled = settings.conversationMessages
+        engine.update(settings); choose.isEnabled = settings.needsCapture && engine.capture.canChoose
     }
     @objc private func tintChanged(_ sender: NSSlider) {
-        settings.tint = sender.doubleValue
-        tintLabel.stringValue = "Tint \(Int((settings.tint * 100).rounded()))%"
+        settings.tint = sender.doubleValue; tintLabel.stringValue = "Tint · \(Int((settings.tint*100).rounded()))%"
+        engine.update(settings)
     }
-    @objc private func selectWindow() { capture.choose(settings: settings) }
-    @objc private func stopAccess() { capture.stop() }
+    @objc private func selectWindow() { engine.choose(settings) }
+    @objc private func stopAccess() { engine.stop() }
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
-    @objc private func quit() { capture.stop(); NSApp.terminate(nil) }
-    func windowWillClose(_ notification: Notification) { capture.stop() }
-    func applicationWillTerminate(_ notification: Notification) { capture.stop() }
+    @objc private func privacyLimits() {
+        let alert = NSAlert(); alert.messageText = "Local processing, experimental coverage"
+        alert.informativeText = "The entire explicitly selected WhatsApp window can reach memory, even with sidebar-only blur. Apple's on-device OCR and rectangle detection estimate message and identity regions; they can miss or misclassify content, especially media, RTL, replies and changed layouts. No recognized text is stored, logged or transmitted.\n\nThis is a separate click-through processed image above WhatsApp. It can lag during scrolling; clicks still reach live WhatsApp and can miss the displayed target. Focus, occlusion, resizing, capture failure or quitting can remove it and expose original WhatsApp. It is not protection against screenshots, recording, sharing, or malicious software. No supported-layout or zero-frame disclosure guarantee is made.\n\nOnly ordinary foreground windows are test candidates. Use an English UI with Search and an empty message field visible. Other layouts may remain unblurred. Moving or resizing can require selecting the window again. Pausing stops capture; an already-running local request can finish, but its result is discarded. No automatic capture at launch or login."
+        alert.addButton(withTitle: "Understood"); alert.runModal()
+    }
+    @objc private func quit() { engine.stop(); NSApp.terminate(nil) }
+    func windowWillClose(_ notification: Notification) { engine.stop() }
+    func applicationWillTerminate(_ notification: Notification) { engine.stop() }
 }

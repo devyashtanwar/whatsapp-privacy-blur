@@ -71,9 +71,10 @@ class OCRInvestigationScopeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             audit_sources({'Sources/CaptureAdapter/Other.swift': 'import Vision\nlet request = VNRecognizeTextRequest()'})
 
-    def test_research_permission_does_not_allow_network_or_runtime_linking(self):
+    def test_local_ocr_does_not_allow_network_or_unreviewed_entrypoints(self):
         with self.assertRaises(ValueError):
             audit_sources({'Sources/GeometryAnalysis/UIAnchorRecognition.swift': 'URLSession.shared'})
+        audit_sources({'Sources/DesktopBlurPreview/IntegrationCoordinator.swift': 'import GeometryAnalysis'})
         with self.assertRaises(ValueError):
             audit_sources({'Sources/CaptureAdapter/Other.swift': 'import GeometryAnalysis'})
 

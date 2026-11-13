@@ -18,7 +18,7 @@ BUNDLE_ID = 'devyashtanwar.whatsapp-blur-preview'
 APP_NAME = 'WhatsApp Blur Integration Preview.app'
 # Swift manifests are executable code, not a safely parseable dependency-list format.
 # Any graph/source mapping change must be reviewed before updating this pin.
-APPROVED_MANIFEST = '2eccdec1ef3a74e4b9ad82167473399b2078782e2cb67636722c89bc3ef12b8f'
+APPROVED_MANIFEST = 'fdae356548024538a0dfcc0df6df58474f1d261148fef418ceb7df30da554b05'
 REQUIRED_POLICY = dict(schemaVersion=1, bundleIdentifier=BUNDLE_ID,
     entitlements={'com.apple.security.app-sandbox': True},
     forbiddenCapabilities=[v for v in CAPABILITIES if v != 'screen-capture'],
@@ -39,8 +39,8 @@ def audit_sources(sources):
         research_ocr = path == 'Sources/GeometryAnalysis/UIAnchorRecognition.swift'
         if not research_ocr and re.search(r'\b(?:VNRecognizeTextRequest|RecognizeTextRequest)\b', source):
             raise ValueError('OCR is authorized only in the isolated UI-anchor investigation')
-        if path.startswith('Sources/') and not path.startswith('Sources/GeometryAnalysis/') and re.search(r'\bimport\s+GeometryAnalysis\b', source):
-            raise ValueError('Unaccepted geometry research must not be linked to live capture')
+        if path.startswith('Sources/') and not path.startswith('Sources/GeometryAnalysis/') and path != 'Sources/DesktopBlurPreview/IntegrationCoordinator.swift' and re.search(r'\bimport\s+GeometryAnalysis\b', source):
+            raise ValueError('Geometry analysis is allowed only through the reviewed integration coordinator')
         patterns = SOURCE_PATTERNS + [
             r'AXUIElement|AXIsProcessTrusted|CGWindowListCreateImage|CGDisplayCreateImage|SCShareableContent|SCScreenshotManager|SCRecordingOutput',
             r'\b(?:capturesAudio|captureMicrophone)\s*=\s*true',
@@ -74,10 +74,11 @@ def snapshot_inputs(repo=ROOT):
         source_map = {}
         entries = []
         inputs = []
-        for name in ['Package.swift', 'Sources', 'Tests', 'AdapterTests', 'GeometryTests', 'Security']:
+        for name in ['Package.swift', 'Sources', 'Tests', 'AdapterTests', 'GeometryTests', 'RenderTests', 'Security']:
             inputs.append((preview / name, Path(name)))
         inputs.extend([(repo / 'Sources/PrivacyCore', Path('Inputs/PrivacyCore')),
-                       (repo / 'Sources/HideWhatsApp/ProcessIdentity.swift', Path('Sources/CaptureAdapter/ProcessIdentity.swift'))])
+                       (repo / 'Sources/HideWhatsApp/ProcessIdentity.swift', Path('Sources/CaptureAdapter/ProcessIdentity.swift')),
+                       (repo / 'Experiments/SelectiveBlurLab/Sources/LabViews/GaussianFilter.swift', Path('Sources/NativeRendering/GaussianFilter.swift'))])
         for source, target_root in inputs:
             if source.is_symlink() or not source.exists(): raise ValueError('Missing or symbolic preview input')
             if source.resolve(strict=True) != source: raise ValueError('Redirected preview input')
@@ -91,12 +92,12 @@ def snapshot_inputs(repo=ROOT):
                 target = snapshot / relative; target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data); target.chmod(0o444)
                 entries.append({'source': str(path.relative_to(repo)), 'compiledPath': str(relative), 'sha256': hashlib.sha256(data).hexdigest()})
-                if relative.suffix == '.swift' and relative.parts[0] not in {'Tests', 'AdapterTests', 'GeometryTests'}:
+                if relative.suffix == '.swift' and relative.parts[0] not in {'Tests', 'AdapterTests', 'GeometryTests', 'RenderTests'}:
                     source_map[str(relative)] = data.decode()
         validate_policy(json.loads((snapshot / 'Security/CapabilityPolicy.json').read_text()))
         audit_sources(source_map)
         audit_bootstrap(source_map)
-        manifest = dict(schemaVersion=1, baseRevision=revision(repo), milestone='selected-window-access-only-no-blur', inputs=entries)
+        manifest = dict(schemaVersion=1, baseRevision=revision(repo), milestone='native-desktop-experimental-local-ocr', inputs=entries)
         yield work, snapshot, manifest
 
 def swift_command(work, snapshot, mode):
@@ -120,7 +121,7 @@ def verify_preview(app):
     validate_policy(json.loads((app / 'Contents/Resources/capability-policy.json').read_text()))
     manifest = json.loads((app / 'Contents/Resources/source-manifest.json').read_text())
     entries = manifest.get('inputs')
-    if manifest.get('milestone') != 'selected-window-access-only-no-blur' or not isinstance(entries, list) or not entries:
+    if manifest.get('milestone') != 'native-desktop-experimental-local-ocr' or not isinstance(entries, list) or not entries:
         raise ValueError('Invalid preview provenance')
     paths = set()
     for entry in entries:
@@ -153,12 +154,14 @@ def verify_preview(app):
         raise ValueError('Broad content enumeration, recording or input monitoring')
     for line in subprocess.check_output(['otool', '-L', str(binary)], text=True).splitlines()[1:]:
         if not line.strip().startswith(('/System/Library/', '/usr/lib/')): raise ValueError('Non-system preview library')
-        if '/Vision.framework/' in line: raise ValueError('Unaccepted research framework in capture binary')
+        # Vision is explicitly authorized for local OCR in this test candidate.
+        if any('/' + name + '.framework/' in line for name in ['Network', 'CFNetwork']):
+            raise ValueError('Forbidden network framework in capture binary')
     print('Verified preview identity, sandbox-only grants, runtime, selected-window policy and sealed inputs.')
 
 def run_tests():
     with snapshot_inputs() as (work, snapshot, _):
-        for product in ['IntegrationTests', 'AdapterTests', 'GeometryTests']:
+        for product in ['IntegrationTests', 'AdapterTests', 'GeometryTests', 'RenderTests']:
             subprocess.run(swift_command(work, snapshot, 'run') + [product], check=True)
 
 def build():
@@ -182,5 +185,5 @@ def build():
         if backup is not None:
             if backup.parent != output.parent or backup.is_symlink(): raise ValueError('Unsafe generated backup')
             shutil.rmtree(backup)
-    print('Built access checkpoint:', output)
-    print('Not installed or launched. No real-message blur or protection is implemented or claimed.')
+    print('Built native Desktop test candidate:', output)
+    print('Not installed or launched. Experimental geometry: real WhatsApp coverage and timing require harmless manual testing.')

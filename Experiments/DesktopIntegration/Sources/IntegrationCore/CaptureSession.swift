@@ -1,5 +1,5 @@
 import Foundation
-public enum SessionState: Equatable { case idle, selecting, awaitingFrames, unsupported, paused, failed }
+public enum SessionState: Equatable { case idle, selecting, awaitingFrames, capturing, unsupported, paused, failed }
 public struct SelectionDescriptor {
     public var windowID: UInt32
     public var pid: Int32
@@ -21,8 +21,9 @@ public final class CaptureSession {
     public private(set) var target: SelectionDescriptor?
     private var lastTime: TimeInterval = 0
     private var deadline: TimeInterval = 0
-    public var wantsFrames: Bool { state == .awaitingFrames && target != nil }
-    public init() {}
+    public var wantsFrames: Bool { (state == .awaitingFrames || state == .capturing) && target != nil }
+    private let continuous: Bool
+    public init(continuous: Bool = false) { self.continuous = continuous }
     public func request(settings: BlurSettings, now: TimeInterval) -> UInt64? {
         stop()
         guard settings.needsCapture, now.isFinite, now >= 0 else { return nil }
@@ -42,8 +43,13 @@ public final class CaptureSession {
         guard advance(now), now <= deadline, capturedAt.isFinite, capturedAt >= 0,
               capturedAt <= now, now - capturedAt <= 0.5, targetStillTrusted,
               width > 0, width <= 4096, height > 0, height <= 4096 else { fail(); return false }
-        stop(); state = .unsupported // Geometry/timing gates are not implemented or proven.
+        if continuous { state = .capturing; deadline = now + 3 }
+        else { stop(); state = .unsupported } // Access-only checkpoint remains available to tests.
         return true
+    }
+    public func observeIdle(token: UInt64, now: TimeInterval, targetStillTrusted: Bool) -> Bool {
+        guard token == self.token, continuous, wantsFrames, advance(now),now <= deadline,targetStillTrusted else { return false }
+        deadline = now + 3; return true
     }
     public func tick(now: TimeInterval) {
         guard wantsFrames else { return }

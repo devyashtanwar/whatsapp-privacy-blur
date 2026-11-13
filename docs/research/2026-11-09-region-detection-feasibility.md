@@ -1,6 +1,6 @@
 # Native region detection investigation — 2026-11-09
 
-Status: incomplete feasibility work, not a production blur implementation.
+Status: historical investigation record, not a production blur implementation. Runtime OCR was subsequently explicitly authorized for the separate test candidate; see [2026-11-12 candidate record](2026-11-12-native-test-candidate.md). Statements about isolation below describe the earlier checkpoint, not the current candidate.
 Base: 2c146135245641d4e0ff371efa6d522fd8942e2f.
 
 The user reported selecting WhatsApp in the access preview and requested proceeding to production-app testing without another separate access test. Treat that as authorization to continue implementation and as a reported picker interaction, not proof of the exact final frame-validation status. Runtime selection/authentication checks remain mandatory; no repeated manual selection report is requested here.
