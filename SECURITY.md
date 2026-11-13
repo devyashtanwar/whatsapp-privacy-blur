@@ -44,3 +44,7 @@ Compilation uses a private, fixed copy of source/build inputs and records hashes
 All code-validity checks explicitly disable network-dependent evaluation. Offline validation cannot retrieve fresh online revocation/notarization status; it preserves the Apple anchor and fails locally rather than enabling online verification.
 
 Authentication failure details (stage and optional Security status/message) remain in memory and can be viewed locally. The retry action clears cached results; it cannot authorize a failed target. No diagnostics are persisted or transmitted.
+
+## Separate native Gaussian test candidate
+
+`Experiments/DesktopIntegration` now has its own selected-window capture/OCR/rendering test app and distinct bundle identity. The user explicitly authorized local OCR during use. It retains the sandbox-only grant and no network/content persistence, but its capabilities differ from the opaque-cover product described above. Its inferred regions, media coverage and external interaction are unverified; it must not be treated as privacy protection. See its [processing limits and manual test guide](Experiments/DesktopIntegration/README.md). Root cover capability rules are unchanged.

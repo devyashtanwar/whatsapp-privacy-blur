@@ -1,5 +1,7 @@
 # WhatsApp Privacy Cover
 
+For the new Gaussian-blur Desktop test candidate, use the [native test build guide](Experiments/DesktopIntegration/README.md). It is separate from the solid-cover product below; real WhatsApp coverage and interaction remain unverified.
+
 A local macOS menu bar utility that places opaque covers over WhatsApp Desktop windows. This privacy-focused fork replaces the upstream screenshot blur with solid covers.
 
 **No screenshots. No Accessibility permission. No Screen Recording permission. No analytics, network functionality, or third-party packages.**

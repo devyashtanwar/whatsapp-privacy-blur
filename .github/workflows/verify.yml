@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -21,7 +21,7 @@ jobs:
         run: python3 -m unittest discover -s Tests/InstallerTests -p test_signed_artifacts.py -v
 
   selective-blur-lab:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -34,3 +34,18 @@ jobs:
         env:
           PRIVACY_BLUR_LAB_APP: ${{ github.workspace }}/dist/Selective Blur Lab.app
         run: python3 -m unittest discover -s Tests/InstallerTests -p test_blur_lab_artifact.py -v
+
+  desktop-access-preview:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Integration policy and configuration tests (no capture or GUI)
+        run: ./scripts/test-desktop-preview.sh
+      - name: Build and verify separate access checkpoint (no launch)
+        run: ./scripts/build-desktop-preview.sh
+      - name: Signed preview capability rejection tests (no execution)
+        env:
+          PRIVACY_DESKTOP_PREVIEW_APP: ${{ github.workspace }}/dist/WhatsApp Blur Integration Preview.app
+        run: python3 -m unittest discover -s Tests/InstallerTests -p test_desktop_preview_artifact.py -v
